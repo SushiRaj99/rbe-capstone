@@ -1,6 +1,6 @@
 services:
   rbe_capstone:
-    image: ghcr.io/sushiraj99/rbe-capstone:0.0.1
+    image: ghcr.io/sushiraj99/rbe-capstone:testing
     container_name: rbe_capstone
     network_mode: host
     ipc: host
