@@ -1,7 +1,7 @@
 FROM ros:jazzy-ros-core
 
 # ROS2 setup
-COPY ./cyclonedds.xml .ros/cyclonedds.xml
+COPY ./cyclonedds.xml root/.ros/cyclonedds.xml
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV CYCLONEDDS_URI=.ros/cyclonedds.xml
 
