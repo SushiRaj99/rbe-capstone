@@ -1,0 +1,5 @@
+This is a test to prove that the mounted volume is working properly.
+
+This line of text was written from within the container through a WSL2 host!
+
+This line of text was written through a container through Ubuntu VM!

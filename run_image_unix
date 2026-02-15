@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [[ $# -ne 1 ]]; then
+    echo "Must supply a single docker image name as an input argument to run."
+    exit
+fi
+
+xhost +
+
+# NOTE that in order for the '$(pwd)/capstone_workspace' volume to work properly, it must be 
+# created within the Dockerfile (and ideally set as the working directory). If a different directory
+# is created and/or being used as the working directory, make sure to link that directory within the 
+# docker image to a local directory within this repository and mount the local directory as a volume 
+# below:
+
+docker run \
+        -it --rm --net=host \
+		-e DISPLAY=${DISPLAY} \
+		-e QT_X11_NO_MITSHM=1 \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+		-v "$(pwd)/capstone_workspace":"/capstone_workspace:rw" \
+		$1
