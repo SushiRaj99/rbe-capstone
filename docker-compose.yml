@@ -1,0 +1,16 @@
+services:
+  rbe_capstone:
+    image: ghcr.io/sushiraj99/rbe-capstone:0.0.1
+    container_name: rbe_capstone
+    network_mode: host
+    ipc: host
+    hostname: rbe-capstone-env
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # Allows graphical programs in the container
+      - DISPLAY=${DISPLAY}
+      - CYCLONEDDS_URI=.ros/cyclonedds.xml
+    volumes:
+      - ./rbe_capstone:/root/ws/src/rbe_capstone
+    stdin_open: true
+    tty: true
