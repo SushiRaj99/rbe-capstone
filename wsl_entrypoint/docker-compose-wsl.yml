@@ -1,0 +1,29 @@
+services:
+  rbe_capstone:
+    image: ghcr.io/sushiraj99/rbe-capstone/capstone_ros_layer:testing
+    container_name: rbe_capstone
+    network_mode: host
+    ipc: host
+    hostname: rbe-capstone-env
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # Allows graphical programs in the container
+      - DISPLAY=${DISPLAY}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - PULSE_SERVER=${PULSE_SERVER}
+      - CYCLONEDDS_URI=.ros/cyclonedds.xml
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
+      - ../rbe_capstone:/root/ws/src/rbe_capstone
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true

@@ -40,6 +40,6 @@ RUN chmod +x /root/build_cscope_ws.sh
 RUN echo "alias build_cscope_ws='/root/build_cscope_ws.sh'" >> /root/.bashrc
 
 # Setup the entrypoint and shared workspace
-RUN mkdir /capstone_workspace
-WORKDIR /capstone_workspace
+RUN mkdir -p /root/ws/src/rbe_capstone
+WORKDIR /root/ws/src/rbe_capstone
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml && colcon mixin update"

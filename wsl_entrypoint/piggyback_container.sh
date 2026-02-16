@@ -1,7 +1,5 @@
 #!/bin/bash
 
-dockerps_array=()
-
 dockerps_str=$(docker ps)
 dockerps_array=(${dockerps_str})
 dpslen=${#dockerps_array[@]}
