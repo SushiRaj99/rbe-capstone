@@ -1,0 +1,100 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\newcommand{\photo}[1]{%
+\includegraphics[width=8cm, height=5cm]{#1}
+}
+\begin{document}
+
+\title{Proposal for: Utilizing Reinforcement Learning with Path Planning Algorithms to Create More Efficient Paths of Travel\\
+}
+
+\author{\IEEEauthorblockN{Andrew Meyer}
+\IEEEauthorblockA{\textit{Robotics Engineering } \\
+\textit{Worcester Polytechnic Institute}\\
+Worcester, Massachusetts \\
+ameyer2@wpi.edu}
+\and
+\IEEEauthorblockN{Everett Wenzlaff}
+\IEEEauthorblockA{\textit{Robotics Engineering } \\
+\textit{Worcester Polytechnic Institute}\\
+Worcester, Massachusetts \\
+wenzlaffeverett@wpi.edu}
+\and
+\IEEEauthorblockN{Sushant Raj}
+\IEEEauthorblockA{\textit{Robotics Engineering } \\
+\textit{Worcester Polytechnic Institute}\\
+Worcester, Massachusetts \\
+rajsushant@wpi.edu}}
+
+\maketitle
+
+\begin{abstract}
+In this report, it is proposed to utilize an offline reinforcement learning program in conjunction with one or more basic path planning algorithms to efficiently optimize a simulated turtle-bot travel path in a 2D environment based on the manipulation of several key parameters with the performance measured against path length, smoothness, travel time, velocity, and clearance.
+\end{abstract}
+
+\begin{IEEEkeywords}
+ROS2
+MPPI
+\end{IEEEkeywords}
+
+\section{Introduction}
+In the industrial environment of AMRs, path planners are, in general, deployed en-mass and are not tailored to the customers needs or the warehouse environment in which they are deployed. This results in good, but not excellent performance, and while easier to maintain on the backend, can limit customer output in on the front end. These general deployments often cast a wide net and aim to operated on the 'safe side', whether that be wide, nonadjustable clearance, paths around high traffic areas, or creating lanes that avoid foot traffic altogether. In reality, each customer has different needs, and outside of required safety standards, may have certain workplace standards that could offer better performance if utilized properly to tune the AMR deployment. It is obvious that hand tuning any number of parameters for each individual deployment site is unreasonable and the time spend on it would far outweigh any long-term benefits.
+To reduce the amount of work input needed to tune these parameters, it is proposed that a reinforcement learning (RL) algorithm is deployed for each site and the parameters are adjusted with direct input of the customer to optimize the AMR deployment for their specific site while prioritizing their specific needs. The evaluation metrics to be utilized in this simulation are: Path length, path smoothness, travel time, clearance, and average velocity.
+    \subsection{Prior work}
+    To begin, research was conducted to establish any relatable prior work; keywords under study were: path / trajectory planner, reinforcement learning, ROS2, and MPPI. Below are three of the most recent and more relevant papers uncovered that either analyzed a similar problem, or utilized part of the proposed approach in a different environment.
+        \subsubsection{paper 1}
+     Comparative Analysis of Local Trajectory Planning Algorithms in
+ROS2 (2025)
+        \subsubsection{paper 2}
+Local Path Planning Algorithm of Mobile Robot by Modified
+Optimized Parameters Method (2010)
+        \subsubsection{paper 3}
+RL-Driven MPPI: Accelerating Online Control Laws Calculation With
+Offline Policy (2024)   
+
+\section{Materials and Methods}
+    \subsection{Simulation Enviorment}
+    Docker, ROS2, Turtlebot, etc.
+    \subsection{Reinforcement Learning}
+    RL Pipeline
+    
+\section{Experiments}
+Extensive debugging and sadness
+
+\section{Results}
+Success!
+
+\section{Conclusion}
+Turtlebot rules the world
+
+\newpage
+\section{Abbreviations and Acronyms}\label{AA}
+
+\begin{thebibliography}{00}
+\bibitem{b1} S. M. Elbouhy, A. Adamanov, P. M. Braun and H. Wilhelm Rose, "Comparative Analysis of Local Trajectory Planning Algorithms in ROS2," 2025 IEEE International Conference on Simulation, Modeling, and Programming for Autonomous Robots (SIMPAR), Palermo, Italy, 2025, pp. 1-6, doi: 10.1109/SIMPAR62925.2025.10979015.
+keywords: {Measurement;Navigation;Trajectory planning;Heuristic algorithms;Operating systems;Warehousing;Transportation;Safety;Autonomous robots;Testing;ROS2;Local Planner;DWB;MPPI;RPP},
+\bibitem{b2} H. Li, W. Zhang, Z. Dong, J. Yang and J. Lu, "Local Path Planning Algorithm of Mobile Robot by Modified Optimized Parameters Method," 2021 IEEE 5th Advanced Information Technology, Electronic and Automation Control Conference (IAEAC), Chongqing, China, 2021, pp. 1014-1018, doi: 10.1109/IAEAC50856.2021.9391102. keywords: {Systematics;Simultaneous localization and mapping;Navigation;Heuristic algorithms;Path planning;Mobile robots;Information technology;robot navigation;local path planning;DWA;simulation;orthogonal test},
+\bibitem{b3} Y. Qu et al., "RL-Driven MPPI: Accelerating Online Control Laws Calculation With Offline Policy," in IEEE Transactions on Intelligent Vehicles, vol. 9, no. 2, pp. 3605-3616, Feb. 2024, doi: 10.1109/TIV.2023.3348134.
+keywords: {Optimal control;Vehicle dynamics;Trajectory;Complex systems;Real-time systems;Reinforcement learning;Predictive control;Autonomous aerial vehicles;Model predictive control (MPC);reinforcement learning (RL);unmanned aerial vehicle (UAV)},
+\end{thebibliography}
+
+\newpage
+\onecolumn
+\appendix
+\section{Appendix}
+  \subsection{Appendix A: Source code}
+  
+    \clearpage
+    \newpage
+\end{document}
