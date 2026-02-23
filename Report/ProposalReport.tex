@@ -51,32 +51,43 @@ MPPI
 \section{Introduction}
 In the industrial environment of AMRs, path planners are, in general, deployed en-mass and are not tailored to the customers needs or the warehouse environment in which they are deployed. This results in good, but not excellent performance, and while easier to maintain on the backend, can limit customer output in on the front end. These general deployments often cast a wide net and aim to operated on the 'safe side', whether that be wide, nonadjustable clearance, paths around high traffic areas, or creating lanes that avoid foot traffic altogether. In reality, each customer has different needs, and outside of required safety standards, may have certain workplace standards that could offer better performance if utilized properly to tune the AMR deployment. It is obvious that hand tuning any number of parameters for each individual deployment site is unreasonable and the time spend on it would far outweigh any long-term benefits.
 To reduce the amount of work input needed to tune these parameters, it is proposed that a reinforcement learning (RL) algorithm is deployed for each site and the parameters are adjusted with direct input of the customer to optimize the AMR deployment for their specific site while prioritizing their specific needs. The evaluation metrics to be utilized in this simulation are: Path length, path smoothness, travel time, clearance, and average velocity.
-    \subsection{Prior work}
-    To begin, research was conducted to establish any relatable prior work; keywords under study were: path / trajectory planner, reinforcement learning, ROS2, and MPPI. Below are three of the most recent and more relevant papers uncovered that either analyzed a similar problem, or utilized part of the proposed approach in a different environment.
+    \subsection{Deliverables}
+    
+\section{Project Progress}
+    \subsection{Related Work}
+    To begin, research was conducted to establish any relatable prior work; keywords under study included: path / trajectory planner, reinforcement learning, ROS2, and MPPI. Below are three of the most recent and more relevant papers uncovered that either analyzed a similar problem, or utilized part of the proposed approach in a different environment.
         \subsubsection{paper 1}
-     Comparative Analysis of Local Trajectory Planning Algorithms in
-ROS2 (2025)
+     Comparative Analysis of Local Trajectory Planning Algorithms in ROS2 (2025)
         \subsubsection{paper 2}
-Local Path Planning Algorithm of Mobile Robot by Modified
-Optimized Parameters Method (2010)
+    Local Path Planning Algorithm of Mobile Robot by Modified Optimized Parameters Method (2010)
         \subsubsection{paper 3}
-RL-Driven MPPI: Accelerating Online Control Laws Calculation With
-Offline Policy (2024)   
-
-\section{Materials and Methods}
-    \subsection{Simulation Enviorment}
+    RL-Driven MPPI: Accelerating Online Control Laws Calculation With Offline Policy (2024)
+    \subsection{Simulation Environment}
     Docker, ROS2, Turtlebot, etc.
     \subsection{Reinforcement Learning}
-    RL Pipeline
     
-\section{Experiments}
-Extensive debugging and sadness
+\section{Project Timeline}
+To keep the project on track, the team used the biweekly meeting cadence in conjunction with the class schedule to develop the timeline shown below. The team meets once a week via zoom to go over previous weeks tasks as well as set new goals for the week and assign or reassign tasks as needed to keep the project moving. The group is also in constant contact via group chat for day-to-day questions and updates.
+\begin{itemize}
+    \item February 6th – Full problem definition and solution outline
+    \item February 20th - Literature review complete, report draft started
+    \item February 27th – Basic sim environment built
+    \item March 6th - Build report draft and Proposal presentation
+    \item March 13th - Basic simulation working with preliminary RL
+    \item March 20th – Multiple maps implemented
+    \item March 27th – Parameter tuning with RL implemented
+    \item April 25th - Complete Simulation
+    \item May 1st - Complete report / presentation
+\end{itemize}
+The meeting schedule is shown below for the formal biweekly meetings.
+\begin{itemize}
+    \item February 2nd and 6th
+    \item March 2nd, 16th, and 30th
+    \item April 13th and 27th
+\end{itemize}
 
-\section{Results}
-Success!
+\section{Task division}
 
-\section{Conclusion}
-Turtlebot rules the world
 
 \newpage
 \section{Abbreviations and Acronyms}\label{AA}
@@ -93,7 +104,7 @@ keywords: {Optimal control;Vehicle dynamics;Trajectory;Complex systems;Real-time
 \onecolumn
 \appendix
 \section{Appendix}
-  \subsection{Appendix A: Source code}
+  \subsection{TBD}
   
     \clearpage
     \newpage
