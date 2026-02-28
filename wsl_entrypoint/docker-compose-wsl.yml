@@ -14,10 +14,12 @@ services:
       - PULSE_SERVER=${PULSE_SERVER}
       - CYCLONEDDS_URI=/root/.ros/cyclonedds.xml
       - NVIDIA_DRIVER_CAPABILITIES=all
+    entrypoint: ["/bin/bash", "/ros_entrypoint.sh"]
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /mnt/wslg:/mnt/wslg
       - ../rbe_capstone:/root/ws/src/rbe_capstone
+      - ../docker/ros_entrypoint.sh:/ros_entrypoint.sh
     deploy:
       resources:
         reservations:
@@ -25,5 +27,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    command: bash
     stdin_open: true
     tty: true

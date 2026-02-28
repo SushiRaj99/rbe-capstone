@@ -1,6 +1,6 @@
 services:
   rbe_capstone:
-    image: ghcr.io/sushiraj99/rbe-capstone:testing
+    image: ghcr.io/sushiraj99/rbe-capstone:0.0.1
     container_name: rbe_capstone
     # network_mode: host  # incompatible with port mapping on macOS; re-enable for robot comms
     ipc: host
@@ -12,12 +12,15 @@ services:
       - LIBGL_ALWAYS_SOFTWARE=1
       - GALLIUM_DRIVER=llvmpipe
       - MESA_GL_VERSION_OVERRIDE=3.3
-      - CYCLONEDDS_URI=.ros/cyclonedds.xml
+      - CYCLONEDDS_URI=/root/.ros/cyclonedds.xml
     ports:
       - "5900:5900"
       - "6080:6080"
+    entrypoint: ["/bin/bash", "/ros_entrypoint.sh"]
     volumes:
       - ./rbe_capstone:/root/ws/src/rbe_capstone
-      - ./start_vnc.sh:/root/start_vnc.sh
+      - ./mac_specific/start_vnc.sh:/root/start_vnc.sh
+      - ./docker/ros_entrypoint.sh:/ros_entrypoint.sh
+    command: bash
     stdin_open: true
     tty: true

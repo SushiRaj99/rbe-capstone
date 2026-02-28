@@ -6,7 +6,9 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV CYCLONEDDS_URI=.ros/cyclonedds.xml
 
 ENV TERM=xterm-color
-RUN echo "export RCUTILS_COLORIZED_OUTPUT=1" >> /root/.bashrc
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc \
+ && echo "[ -f /root/ws/install/setup.bash ] && source /root/ws/install/setup.bash" >> /root/.bashrc \
+ && echo "export RCUTILS_COLORIZED_OUTPUT=1" >> /root/.bashrc
 
 # Add entrypoint script
 COPY ros_entrypoint.sh /
@@ -32,6 +34,7 @@ RUN apt update && apt install -y \
   ros-jazzy-nav2-bringup \
   ros-jazzy-nav2-simple-commander \
   ros-jazzy-rviz2 \
+  ros-jazzy-joint-state-publisher-gui \
   nano \
   vim-gtk3 \
   cscope \ 

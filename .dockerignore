@@ -8,3 +8,5 @@ docker/
 build_image.sh
 capstone_ros_layer/
 wsl_entrypoint/
+mac_specific/
+Report/
