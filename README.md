@@ -89,7 +89,7 @@ docker push ghcr.io/sushiraj99/rbe-capstone:my_image_tag
 You can see what's in the cloud on GitHub[ here](https://github.com/SushiRaj99?tab=packages&repo_name=rbe-capstone). You can pull down new images with the following command:
 
 ```
-docker pull https://github.com/SushiRaj99?tab=packages&repo_name=rbe-capstone
+docker pull ghcr.io/sushiraj99/rbe-capstone:my_image_tag
 ```
 
 If you haven't downloaded an image, starting the container will also pull down the image.
@@ -104,4 +104,4 @@ Basically, what the name says. This package is basically just for launching visu
 ros2 launch simulation_launch view_robot.launch.py map_name:="warehouse"
 ```
 
-The map_name argument is optional and will default to "warehouse". The maps must be stored in the `simulation_laumch/maps` folder with the format `<map_name>/<map_name>.pgm` and `<map_name>/<map_name>.yaml`. The defaults for the RVIZ2 visualizations are saved in the `rviz` folder.
+The map_name argument is optional and will default to "warehouse". The maps must be stored in the `simulation_laumch/maps` folder with the format `<map_name>/<map_name>.pgm` and `<map_name>/<map_name>.yaml`. The defaults for the RVIZ2 visualizations are saved in the `rviz folder.
