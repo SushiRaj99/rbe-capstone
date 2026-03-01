@@ -1,11 +1,10 @@
 #!/bin/bash
-# Starts a virtual display (Xvfb) and serves it via noVNC in the browser.
 # Usage: ./start_vnc.sh
 # Then open http://localhost:6080/vnc.html on your Mac.
 
 set -e
 
-# Install dependencies if missing
+# Install dependencies
 if ! command -v Xvfb &> /dev/null || ! command -v x11vnc &> /dev/null || ! command -v websockify &> /dev/null; then
   echo "[start_vnc] Installing Xvfb, x11vnc, novnc..."
   apt update -qq && apt install -y xvfb x11vnc novnc

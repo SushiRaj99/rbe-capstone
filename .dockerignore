@@ -10,3 +10,4 @@ capstone_ros_layer/
 wsl_entrypoint/
 mac_specific/
 Report/
+doc/
