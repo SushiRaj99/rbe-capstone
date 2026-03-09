@@ -45,6 +45,7 @@ In this report, it is proposed to utilize an offline reinforcement learning prog
 
 \begin{IEEEkeywords}
 ROS2
+DWB
 MPPI
 \end{IEEEkeywords}
 
@@ -56,10 +57,17 @@ To reduce the amount of work input needed to tune these parameters, it is propos
 \section{Project Progress}
     \subsection{Related Work}
     To begin, research was conducted to establish any relatable prior work; keywords under study included: path / trajectory planner, reinforcement learning, ROS2, and MPPI. Below are three of the most recent and more relevant papers uncovered that either analyzed a similar problem, or utilized part of the proposed approach in a different environment.
-        \subsubsection{paper 1}
-     Comparative Analysis of Local Trajectory Planning Algorithms in ROS2 (2025)
-        \subsubsection{paper 2}
-    Local Path Planning Algorithm of Mobile Robot by Modified Optimized Parameters Method (2010)
+                \subsubsection{Comparative Analysis of Local Trajectory Planning Algorithms in ROS2}
+        In this paper, Elbouhy et. al designed a study that consisted of both a simulation and real world test of a small mobile robot similar to an AMR utilizing ROS2 and three different path planners. The path planners were tested in both environments with static and dynamic obstacles and the results were then evaluated to determine the different in approach for each algorithm. The study analyzed a DWB (Modified Dynamic Window Approach), MPPI (Model Predictive Path Integral), and RPP (Improved Pure Pursuit) planner and used the following criteria to determine path quality: time, distance, smoothness, minimum clearance, runs completed, and number of recoveries (if obstacle contact is made). After running 10 runs of each planner in both the simulation and real environments, it was clear that MPPI was the fastest but least smooth, DWB operated with the least clearance, and RPP took the most time and traveled the longest distance.
+
+        As this relates to this project, this clearly demonstrates that, as expected in some cases, different planners have different strengths and weaknesses. One of the potential goals for this project is to utilize multiple path planners in concert with the RL algorithm and the research conducted in this paper shows that an approach like that could, in some circumstances, optimize a path. It also shows that if certian critera are considered higher value, then the RL could favor those. For example, if the environment is close quarters and completely static, DWB could be favored for it's low clearance and shorter distance traveled.
+        
+        \subsubsection{Local Path Planning Algorithm of Mobile Robot by Modified Optimized Parameters Method (2010)}
+        In this paper, Li et. al studied the Dynamic Window Approach (DWA) algorithm and adjusted specific evaluation parameters in an effort to optimize the path planning sequence. DWA is a local path planner that, in this case, works in concert with a global planner. DWA measures and simulates velocity values for the robot over a specific period of time, then with that, it generates and evaluates the paths created and determines the optimal choice. The evaluation function utilized in this paper can be seen below where heading is the difference in angle between the current and goal state, dist is the distance between the trajectory and nearest obstacle, and velocity is the speed of the robot, and $\alpha$, $\beta$, and $\gamma$ are the tuning values under study.
+        \[ G(\upsilon,\omega) = \sigma(\alpha \cdot heading(\upsilon,\omega) + \beta \cdot dist(\upsilon,\omega)+\gamma \cdot velocity(\upsilon, \omega))\]
+        A simple environment was set up in both a simulation and real-world and $\alpha$, $\beta$, and $\gamma$ values were adjusted  as follows for 3 separate preliminary trials: (0.05, 0.10, 0.10), (0.10, 0.20, 0.20), (0.15, 0.30, 0.30). And it was determined that $\alpha$ had a minimal effect on optimizing the path and was set to 0.10 for the rest of the experiment. $\beta$ and $\gamma$ were then tuned between 0.05 and 0.4 in a series of 64 combinations to optimize both at $\beta$ = 0.04 and $\gamma$=0.36. 
+
+        In the context of this project, the interest lies in the tuning equations itself. With the goal of this project being to implement a RL-supported algorithm for the path planning, the tuning equation above provides not only quality reference for this project, but also acts as a confident proof-of-concept in that it is known that path planning algorithms can be tuned and optimized on a limited number of parameters and the results are statistically significant and positive.
         \subsubsection{paper 3}
     RL-Driven MPPI: Accelerating Online Control Laws Calculation With Offline Policy (2024)
     \subsection{Simulation Environment}
