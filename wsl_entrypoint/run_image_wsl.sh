@@ -28,5 +28,5 @@
 
 # The command below accomplishes the same thing as the commented out lines above:
 docker compose -f docker-compose-wsl.yml up -d && \
-./piggyback_container.sh && \
+./piggyback_container.sh "$@" && \
 docker compose -f docker-compose-wsl.yml down
