@@ -73,7 +73,24 @@ To reduce the amount of work input needed to tune these parameters, it is propos
         \[R = R_g+R_c+R_s+R_sh\]
         The critical part of the equation is $R_sh$, which utilized the euclidean distance to the goal to provide a higher value reward for better steps. For the RL algorithm we are implementing, we intend to use a similar reward function to reduce the learning time needed for each run or environment we simulate. 
     \subsection{Simulation Environment}
-    Docker, ROS2, Turtlebot, etc.
+    \subsubsection{Implemented Stages}
+    The simulation environment was designed to be cross-platform and reproducible, leveraging Docker to encapsulate all dependencies and ensure consistent behavior across the team's Mac, Windows, and Linux development machines. The environment is structured as a two-layer Docker image: a base capstone\_ros\_layer image that installs all system-level dependencies (ROS2, Nav2, TurtleBot4 description packages, and visualization tools), and a top-level rbe\_capstone image that layers in the project's ROS2 workspace. Separating dependency installation from application code allows the more expensive base layer to be rebuilt infrequently while code iteration remains fast.
+
+    The simulation runs on ROS2 Jazzy with the CycloneDDS middleware layer for inter-node communication. The robot model used is the TurtleBot4, whose URDF is loaded via \texttt{xacro} and published to the \texttt{/robot\_description} topic by the \texttt{robot\_state\_publisher} node. Navigation is performed in a 2D occupancy grid environment using the Nav2 stack, which includes \texttt{nav2\_map\_server} for loading pre-built maps and \texttt{nav2\_lifecycle\_manager} for managing the lifecycle of navigation nodes. Maps are stored as paired \texttt{.pgm} and \texttt{.yaml} files and are selectable at launch time, enabling the team to quickly swap between different warehouse environments as the project progresses.
+
+    Visualization is handled by RViz2, which renders the robot model, occupancy map, and planned paths. On macOS, because the simulation runs headlessly inside a Docker container, a virtual framebuffer (Xvfb) and VNC server are used to forward the graphical interface to the host machine, accessible on port 5900 or via a browser-based client on port 6080. A single parameterized launch file, \texttt{view\_robot.launch.py}, brings up all required nodes---the robot state publisher, static TF broadcasters, map server, lifecycle manager, and RViz2---making it straightforward to stand up the full environment with a single command. For the purpose of 
+    this project, RVIZ2 is chosen over Gazebo for visualization because it is more lightweight and the scope of this project does not require a full physics simulation. Gazebo will be consistently slower 
+    in launching and running episodes, which is not ideal for iterative tests and tuning of the RL algorithm. RViz2 provides sufficient visualization capabilities for the 2D occupancy grid and planned paths while allowing for faster iteration cycles.
+
+    \subsubsection{Planned Simulation Development}
+    The next phase of simulation development focuses on transitioning the environment from static visualization to an active, navigable system capable of supporting the reinforcement learning pipeline. This involves three parallel workstreams: navigation integration, trajectory evaluation, and environment expansion.
+
+    The immediate priority is wiring in an active odometry source and configuring the Nav2 local planners so the TurtleBot4 can receive and execute navigation goals within the occupancy grid. Both DWB and MPPI will be brought up as configurable Nav2 plugins, with their tunable parameters exposed via the ROS2 parameter server. This is a prerequisite for the RL component, as the agent must be able to set planner parameters between episodes and trigger navigation runs programmatically.
+
+    Once the robot can navigate, a trajectory evaluation module will be implemented to compute the path quality metrics defined in Section I: path length, path smoothness (heading angle variance), travel time, average velocity, and minimum obstacle clearance. These metrics will be computed from the \texttt{/odom}, \texttt{/cmd\_vel}, and \texttt{/local\_costmap} topics published during each navigation run and will serve as the basis for the RL reward function. This module will be implemented as a standalone ROS2 node that subscribes to the relevant topics during an episode and produces a structured result upon goal completion or timeout.
+
+    To ensure the RL agent generalizes across site layouts rather than overfitting to a single map, multiple warehouse-style occupancy grid maps will be introduced. Maps will vary along key structural dimensions---corridor width, obstacle density, and open floor area---to expose the agent to the range of layouts described in the project motivation. Together, these components will complete the simulation layer and allow the reinforcement learning environment to be built directly on top of it.
+
     \subsection{Reinforcement Learning}
     
 \section{Project Timeline}
