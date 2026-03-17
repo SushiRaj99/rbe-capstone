@@ -9,6 +9,7 @@
 \usepackage{xcolor}
 \usepackage{caption}
 \usepackage{subcaption}
+\usepackage{url}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \newcommand{\photo}[1]{%
@@ -29,7 +30,7 @@ ameyer2@wpi.edu}
 \IEEEauthorblockA{\textit{Robotics Engineering } \\
 \textit{Worcester Polytechnic Institute}\\
 Worcester, Massachusetts \\
-wenzlaffeverett@wpi.edu}
+ecwenzlaff@wpi.edu}
 \and
 \IEEEauthorblockN{Sushant Raj}
 \IEEEauthorblockA{\textit{Robotics Engineering } \\
@@ -50,28 +51,47 @@ MPPI
 \end{IEEEkeywords}
 
 \section{Introduction}
-In the industrial environment of AMRs, path planners are, in general, deployed en-mass and are not tailored to the customers needs or the warehouse environment in which they are deployed. This results in good, but not excellent performance, and while easier to maintain on the backend, can limit customer output in on the front end. These general deployments often cast a wide net and aim to operated on the 'safe side', whether that be wide, nonadjustable clearance, paths around high traffic areas, or creating lanes that avoid foot traffic altogether. In reality, each customer has different needs, and outside of required safety standards, may have certain workplace standards that could offer better performance if utilized properly to tune the AMR deployment. It is obvious that hand tuning any number of parameters for each individual deployment site is unreasonable and the time spend on it would far outweigh any long-term benefits.
-To reduce the amount of work input needed to tune these parameters, it is proposed that a reinforcement learning (RL) algorithm is deployed for each site and the parameters are adjusted with direct input of the customer to optimize the AMR deployment for their specific site while prioritizing their specific needs. The evaluation metrics to be utilized in this simulation are: Path length, path smoothness, travel time, clearance, and average velocity.
+In the industrial environment of AMRs, path planners are, in general, deployed en-mass and are not tailored to the customers needs or the warehouse environment in which they are deployed. This results in good, but not excellent performance, and while easier to maintain on the backend, can limit customer output on the front end. These general deployments often cast a wide net and aim to operated on the `safe side', whether that be wide, nonadjustable clearance, paths around high traffic areas, or creating lanes that avoid foot traffic altogether. In reality, each customer has different needs, and outside of required safety standards, may have certain workplace standards that could offer better performance if utilized properly to tune the AMR deployment. It is obvious that hand tuning any number of parameters for each individual deployment site is unreasonable and the time spend on it would far outweigh any long-term benefits.
+To reduce the amount of work input needed to tune these parameters, it is proposed that a reinforcement learning (RL) algorithm is deployed for each site and the parameters are adjusted with direct input of the customer to optimize the AMR deployment for their specific site while prioritizing their specific needs. The path evaluation metrics utilized in this simulation will be based on the following criteria: 
+\begin{itemize}
+    \item Safety (clearance from obstacles)
+    \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
+    \item Efficiency (total time and distance to goal)
+    \item Smoothness (heading angle variance, velocity variance, etc.)
+\end{itemize}
     \subsection{Deliverables}
-    At the end of the semester, the team will have a functional program that runs a 2D simulation utilizing a Turtlebot which needs to navigate through a crowded warehouse-like environment utilizing one or multiple path planners in conjunction with a RL algorithm that will automatically tune the path and path parameters to optimize the path of travel to align with the request. In this simulation, getting from point A to point B the fastest will not be the only measure of success. The RL algorithm should be able to take in parameter adjustments to the desired path, acceptable smoothness, desired clearance, and zone restrictions and create an optimal plan for the turtlebot.
+    At the end of the semester, the team will have a functional program that runs a 2D simulation utilizing a Turtlebot which needs to navigate through a crowded warehouse-like environment utilizing one or multiple path planners in conjunction with an RL algorithm that will automatically tune the path and path parameters to optimize the path of travel to align with the request. In this simulation, getting from point A to point B the fastest will not be the only measure of success. The RL algorithm should be able to take in parameter adjustments to the desired path, acceptable smoothness, desired clearance, and zone restrictions in order to create an optimal plan for the turtlebot.
 \section{Project Progress}
     \subsection{Related Work}
-    To begin, research was conducted to establish any relatable prior work; keywords under study included: path / trajectory planner, reinforcement learning, ROS2, and MPPI. Below are three of the most recent and more relevant papers uncovered that either analyzed a similar problem, or utilized part of the proposed approach in a different environment.
-                        \subsubsection{Comparative Analysis of Local Trajectory Planning Algorithms in ROS2 \cite{b1}}        
+    To begin, research was conducted to establish any relatable prior work; keywords under study included: path / trajectory planner, reinforcement learning, ROS2, and MPPI. Below are some of the most recent or relevant papers uncovered that either analyzed a similar problem, or utilized part of the proposed approach in a different environment.
+        
+        \subsubsection{Comparative Analysis of Local Trajectory Planning Algorithms in ROS2 \cite{b1}}        
         In this paper, Elbouhy et. al designed a study that consisted of both a simulation and real world test of a small mobile robot utilizing ROS2 and three different path planners. The path planners were tested in both environments with static and dynamic obstacles and the results were then evaluated to compare algorithms. The study analyzed a DWB (Modified Dynamic Window Approach), MPPI (Model Predictive Path Integral), and RPP (Improved Pure Pursuit) planner and used the following criteria to determine path quality: time, distance, smoothness, minimum clearance, runs completed, and number of recoveries (if obstacle contact is made). After running 10 runs of each planner in both the simulation and real environments, it was clear that MPPI was the fastest but least smooth, DWB operated with the least clearance, and RPP took the most time and traveled the longest distance.
 
         As this relates to this project, this clearly demonstrates that, as expected in some cases, different planners have different strengths and weaknesses. One of the potential goals for this project is to utilize multiple path planners in concert with the RL algorithm and the research conducted in this paper shows that an approach like that could, in some circumstances, optimize a path. It also shows that if certain criteria are considered higher value, then the RL could favor those. For example, if the environment is close quarters and completely static, DWB could be favored for it's low clearance and shorter distance traveled.
         
         \subsubsection{Local Path Planning Algorithm of Mobile Robot by Modified Optimized Parameters Method (2010) \cite{b2}}        
         In this paper, Li et. al studied the Dynamic Window Approach (DWA) algorithm and adjusted specific evaluation parameters in an effort to optimize the path planning sequence. DWA is a local path planner that, in this case, works in concert with a global planner. DWA measures and simulates velocity values for the robot over a specific period of time, then with that, it generates and evaluates the paths created and determines the optimal choice. The evaluation function utilized in this paper looked at the heading, or the difference in angle between the current and goal state, the distance between the trajectory and nearest obstacle, and the speed of the robot, along with weighted modifiers of each ($\alpha$, $\beta$ and $\gamma$).
-        A simple environment was set up in both a simulation and real-world and the tuning modifiers were adjusted as follows for 3 separate preliminary trials: (0.05, 0.10, 0.10), (0.10, 0.20, 0.20), (0.15, 0.30, 0.30). And it was determined that $\alpha$ had a minimal effect on optimizing the path and was set to 0.10 for the rest of the experiment. $\beta$ and $\gamma$ were then tuned between 0.05 and 0.4 in a series of 64 combinations to optimize both at $\beta$ = 0.04 and $\gamma$=0.36. 
+        A simple environment was set up in both a simulation and real-world and the tuning modifiers were adjusted as follows for 3 separate preliminary trials: (0.05, 0.10, 0.10), (0.10, 0.20, 0.20), (0.15, 0.30, 0.30). And it was determined that $\alpha$ had a minimal effect on optimizing the path and was set to 0.10 for the rest of the experiment. $\beta$ and $\gamma$ were then tuned between 0.05 and 0.4 in a series of 64 combinations to optimize both at $\beta$ = 0.04 and $\gamma$ = 0.36. 
 
         In the context of this project, the interest lies in the tuning equations itself. With the goal of this project being to implement a RL-supported algorithm for the path planning, the tuning equation above provides not only quality reference for this project, but also acts as a confident proof-of-concept in that it is known that path planning algorithms can be tuned and optimized on a limited number of parameters and the results are statistically significant and positive.
-        
+
+        \subsection{RL-Driven MPPI: Accelerating Online Control Laws Calculation With Offline Policy \cite{b3}}
+        In this paper, Qu et. al. present a method of training RL policy offline to accelerate the convergence for the online control law calculation of MPPI in an unmanned aerial vehicle (UAV) application. The method they proposed involved utilizing the Distributional Soft Actor-Critic (DSAC) algorithm to have an RL agent train a pair of neural networks to model distributions for the control costs and rollout guiding policy used directly within the online MPPI control. So in this way, the RL agent improved MPPI by providing better ``first guesses'' than standard MPPI. The results of their experiments showed that their method converged significantly faster, produced smoother trajectories, and provided higher success rate in reaching the goal than the standard MPPI control law. Additionally, as part of the experiments in this paper, they also trained a separate RL agent to control the UAV directly (``direct RL control'') and compared the results to the RL-driven MPPI approach. While the RL agent performed better than the standard MPPI, the RL-driven MPPI approach still outperformed the direct RL control approach in terms of path smoothness and success rate in reaching the goal.
+
+        The guiding principle of this paper translates directly to this project, as RL is being used to enhance the strengths of existing local planners instead of replacing them. In fact, results from this paper suggest that the direct RL control approach may not be the most optimal approach for a given path planning application. By leveraging the strengths of both RL and traditional path planning algorithms, this project aims to create a more efficient and adaptable path planning solution for mobile robots in complex environments.
+
         \subsubsection{Accelerating Deep Reinforcement Learning for Mobile Robot Path Planning with Curriculum Learning and Reward Shaping\cite{b4}}
         In this research paper, Ting et. al. present a modified Proximal Policy Optimization (PPO) in conjunction with a deep reinforcement learning (DRL) algorithm in order to reduce the time needed  to move an agent through an environment. Traditional DRL can require millions of episodes in order to converge on a single action. To reduce the number of episodes required and thus the calculation time for each move, they proposed a distance-based weighted dense reward function. The reward function they proposed is seen below where $R_g$ is the reward when the goal is reached, $R_c$ is the collision penalty, $R_s$ is a small step penalty, and $R_sh$ is a distance shaping reward.
         \[R = R_g+R_c+R_s+R_sh\]
         The critical part of the equation is $R_sh$, which utilized the euclidean distance to the goal to provide a higher value reward for better steps. For the RL algorithm we are implementing, we intend to use a similar reward function to reduce the learning time needed for each run or environment we simulate. 
+
+        \subsection{Other Noteworthy Resources}
+        In addition to the papers described above, there were a number of other papers that were reviewed which provided supplemental information for shaping the project. \cite{b5} and \cite{b6} provided metrics and insights on planner path evaluation which we plan to utilize for our own evaluation metrics. \cite{b7} and \cite{b8} demonstrated more examples which utilized RL within some sort of path planning framework for a mobile robot (including both direct and indirect RL control).
+
+        \subsection{Gaps in Literature}
+        While there are several papers which demonstrate the use of RL in path planning, no papers were identified which utilized RL to configure the parameters for a given local path planning algorithm. This is a critical gap in the literature, as it is well established that the performance of local path planners can be highly sensitive to their parameter settings, and that optimal settings can vary significantly across different environments and use cases. Meanwhile, some of the examples utilizing direct RL control are not very extensible as these methods tend to only train the RL agent to operate in a specific environment; and re-training for more complex environments can be very costly. By leveraging RL to automatically tune these parameters, our project aims to fill this gap and demonstrate a novel approach to optimizing path planning performance in a way that is adaptable to the specific needs of different deployment sites.
+
     \subsection{Simulation Environment}
     \subsubsection{Implemented Stages}
     The simulation environment was designed to be cross-platform and reproducible, leveraging Docker to encapsulate all dependencies and ensure consistent behavior across the team's Mac, Windows, and Linux development machines. The environment is structured as a two-layer Docker image: a base capstone\_ros\_layer image that installs all system-level dependencies (ROS2, Nav2, TurtleBot4 description packages, and visualization tools), and a top-level rbe\_capstone image that layers in the project's ROS2 workspace. Separating dependency installation from application code allows the more expensive base layer to be rebuilt infrequently while code iteration remains fast.
@@ -85,25 +105,47 @@ To reduce the amount of work input needed to tune these parameters, it is propos
     \subsubsection{Planned Simulation Development}
     The next phase of simulation development focuses on transitioning the environment from static visualization to an active, navigable system capable of supporting the reinforcement learning pipeline. This involves three parallel workstreams: navigation integration, trajectory evaluation, and environment expansion.
 
-    The immediate priority is wiring in an active odometry source and configuring the Nav2 local planners so the TurtleBot4 can receive and execute navigation goals within the occupancy grid. Both DWB and MPPI will be brought up as configurable Nav2 plugins, with their tunable parameters exposed via the ROS2 parameter server. This is a prerequisite for the RL component, as the agent must be able to set planner parameters between episodes and trigger navigation runs programmatically.
+    The immediate priority is wiring in an active odometry source and configuring the Nav2 local planners so the TurtleBot4 can receive and execute navigation goals within the occupancy grid. Both DWB and MPPI will be brought up as configurable Nav2 plugins, with their tunable parameters exposed via the ROS2 parameter server. This is a prerequisite for the RL component, as the agent must be able to set planner parameters and trigger navigation runs programmatically.
 
-    Once the robot can navigate, a trajectory evaluation module will be implemented to compute the path quality metrics defined in Section I: path length, path smoothness (heading angle variance), travel time, average velocity, and minimum obstacle clearance. These metrics will be computed from the \texttt{/odom}, \texttt{/cmd\_vel}, and \texttt{/local\_costmap} topics published during each navigation run and will serve as the basis for the RL reward function. This module will be implemented as a standalone ROS2 node that subscribes to the relevant topics during an episode and produces a structured result upon goal completion or timeout.
+    Once the robot can navigate, a trajectory evaluation module will be implemented to compute the path quality metrics defined in Section I: path length, path smoothness (heading angle variance), travel time, average velocity, and minimum obstacle clearance. These metrics will be computed from the \texttt{/odom}, \texttt{/cmd\_vel}, and \texttt{/local\_costmap} topics published during each navigation run. This module will be implemented as a standalone ROS2 node that subscribes to the relevant topics during an episode and produces a structured result upon goal completion or timeout.
 
     To ensure the RL agent generalizes across site layouts rather than overfitting to a single map, multiple warehouse-style occupancy grid maps will be introduced. Maps will vary along key structural dimensions---corridor width, obstacle density, and open floor area---to expose the agent to the range of layouts described in the project motivation. Together, these components will complete the simulation layer and allow the reinforcement learning environment to be built directly on top of it.
 
     \subsection{Reinforcement Learning}
+    The RL component of the project will be developed within the simulation environment, with the goal of having a trainable RL agent that can tune planner parameters directly through the Nav2 stack. The RL agent will be implemented using the PPO algorithm, but there were two design options explored for RL architecture of the states, actions, and rewards.
+
+    \subsubsection{One-Time Parameter Tuning during Initialization}
+    With this approach, the RL agent is only responsible for configuring the local planner's parameters one time before the robot begins navigating (e.g. at the start of each episode):
+    \begin{itemize}
+        \item State would need to include 2D map, start pose, goal pose, and potentially the path generated from the global planner.
+        \item The action space would include presets for the local planner parameters.
+        \item The reward function would be derived from the path quality metrics defined in Section I, with the goal of maximizing path efficiency and smoothness while minimizing travel time and clearance. 
+    \end{itemize}
+
+    This approach composes of one state, one action, and one reward for each episode; so it's relatively straightforward to implement. However, since the one state will need to include the 2D map, the dimensionality of the state space may be very high (e.g. needing to include dimensions for coordinates of all obstacles in the map or pixel and color channel matrices for a pixel based representation of the map). To add to the high dimensionality, since there is only one state/action/reward per episode, the RL agent may require an extremely large number of episodes to learn anything meaningful due to the limited amount of feedback it receives on the quality of its actions per episode.
+
+    \subsubsection{Dynamic Parameter Tuning during Navigation}
+    With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters throughout the navigation process:
+    \begin{itemize}
+        \item State would need to include the robot's current pose, velocity, distance from the goal, and any on-board sensor data (e.g. sampled LiDAR segment returns). The state vector could also be augmented to include prior poses or future waypoints from the global planner to provide more context for decision making.
+        \item Actions could either include presets for the local planner parameters or adjustments to the parameters (e.g. increase clearance by 0.1m, decrease path smoothness by 0.05, etc.).
+        \item The reward function would resemble more standard direct RL control reward functions with a large positive reward for reaching the goal, a large negative reward for collisions, and small negative rewards for all other movements to encourage finding the shortest path to the goal. The reward function could also be expanded to include some of the metrics described in Section I for path quality, such as applying a small negative reward for high path curvature or large changes in velocity to encourage smoother paths.
+    \end{itemize}
+
+    This is a more ``hands on'' approach as the RL agent is more involved during the navigation process than the one-time tuning approach; so this approach is likely to be more complex to implement. However, since the state vector is a lower dimensionality and more closely tied to interactions with the environment, the RL agent will have more feedback during each episode to learn from and may converge to an optimal policy more quickly than the one-time tuning approach.
+
+    \subsubsection{Current Decision}
     
 \section{Project Timeline}
-To keep the project on track, the team used the biweekly meeting cadence in conjunction with the class schedule to develop the timeline shown below. The team meets once a week via zoom to go over previous weeks tasks as well as set new goals for the week and assign or reassign tasks as needed to keep the project moving. The group is also in constant contact via group chat for day-to-day questions and updates.
+To keep the project on track, the team used the biweekly meeting cadence in conjunction with the class schedule to develop the timeline shown below. The team meets once a week via zoom to go over tasks from previous weeks; as well as set new goals for the upcoming week and assign, or reassign, tasks as needed to keep the project moving. The group is also in constant contact via group chat for day-to-day questions and updates.
 \begin{itemize}
     \item February 6th – Full problem definition and solution outline
     \item February 20th - Literature review complete, report draft started
-    \item February 27th – Basic sim environment built
-    \item March 6th - Build report draft and Proposal presentation
-    \item March 13th - Basic simulation working with preliminary RL
-    \item March 20th – Multiple maps implemented
-    \item March 27th – Parameter tuning with RL implemented
-    \item April 25th - Complete Simulation
+    \item February 27th – Basic sim environment framework built
+    \item March 13th - Basic simulation working
+    \item March 20th – Finish proposal report and presentation
+    \item March 3rd – Path Evaluation working in simulation
+    \item April 17th - RL pipeline implemented and training started
     \item May 1st - Complete report / presentation
 \end{itemize}
 The meeting schedule is shown below for the formal biweekly meetings.
@@ -122,10 +164,22 @@ The meeting schedule is shown below for the formal biweekly meetings.
 \begin{thebibliography}{00}
 \bibitem{b1} S. M. Elbouhy, A. Adamanov, P. M. Braun and H. Wilhelm Rose, "Comparative Analysis of Local Trajectory Planning Algorithms in ROS2," 2025 IEEE International Conference on Simulation, Modeling, and Programming for Autonomous Robots (SIMPAR), Palermo, Italy, 2025, pp. 1-6, doi: 10.1109/SIMPAR62925.2025.10979015.
 keywords: {Measurement;Navigation;Trajectory planning;Heuristic algorithms;Operating systems;Warehousing;Transportation;Safety;Autonomous robots;Testing;ROS2;Local Planner;DWB;MPPI;RPP},
+
 \bibitem{b2} H. Li, W. Zhang, Z. Dong, J. Yang and J. Lu, "Local Path Planning Algorithm of Mobile Robot by Modified Optimized Parameters Method," 2021 IEEE 5th Advanced Information Technology, Electronic and Automation Control Conference (IAEAC), Chongqing, China, 2021, pp. 1014-1018, doi: 10.1109/IAEAC50856.2021.9391102. keywords: {Systematics;Simultaneous localization and mapping;Navigation;Heuristic algorithms;Path planning;Mobile robots;Information technology;robot navigation;local path planning;DWA;simulation;orthogonal test},
+
 \bibitem{b3} Y. Qu et al., "RL-Driven MPPI: Accelerating Online Control Laws Calculation With Offline Policy," in IEEE Transactions on Intelligent Vehicles, vol. 9, no. 2, pp. 3605-3616, Feb. 2024, doi: 10.1109/TIV.2023.3348134.
 keywords: {Optimal control;Vehicle dynamics;Trajectory;Complex systems;Real-time systems;Reinforcement learning;Predictive control;Autonomous aerial vehicles;Model predictive control (MPC);reinforcement learning (RL);unmanned aerial vehicle (UAV)},
+
 \bibitem{b4} L. Ting, H. B. Y. Ali and M. K. Chamran, "Accelerating Deep Reinforcement Learning for Mobile Robot Path Planning with Curriculum Learning and Reward Shaping," 2025 IEEE 9th International Conference on Software Engineering and Computer Systems (ICSECS), Pekan, Pahang, Malaysia, 2025, pp. 343-347, doi: 10.1109/ICSECS65227.2025.11279207. keywords: {Training;Three-dimensional displays;Systematics;Navigation;Deep reinforcement learning;Path planning;Mobile robots;Optimization;Faces;Convergence;mobile robot;path planning;deep reinforcement learning;training efficiency;curriculum learning;reward shaping}
+
+\bibitem{b5} F. Pimentel and P. Aquino, “Performance Evaluation of ROS Local Trajectory Planning Algorithms to Social Navigation,” Oct. 2019, doi: \url{https://doi.org/10.1109/lars-sbr-wre48964.2019.00035}.  % TODO - not sure what citation generator / tool you guys are using so this may need to be updated to align with the citations above
+
+\bibitem{b6} Isira Naotunna and Theeraphong Wongratanaphisan, “Comparison of ROS Local Planners with Differential Drive Heavy Robotic System,” vol. 4, pp. 1-6, Dec. 2020, doi: \url{https://doi.org/10.1109/icamechs49982.2020.9310123}.   % TODO - not sure what citation generator / tool you guys are using so this may need to be updated to align with the citations above
+
+\bibitem{b7} C.-C. Wong, K.-D. Weng, and B.-Y. Yu, “Multi-Robot Navigation System Design Based on Proximal Policy Optimization Algorithm,” Information, vol. 15, no. 9, p. 518, Aug. 2024, doi: \url{https://doi.org/10.3390/info15090518}. % TODO - not sure what citation generator / tool you guys are using so this may need to be updated to align with the citations above
+
+\bibitem{b8} F. Almeida, G. Le\~{a}o, and A. Sousa, “An Educational Kit for Simulated Robot Learning in ROS 2,” Robot 2023: Sixth Iberian Robotics Conference, vol. 2, pp. 513-525, doi: \url{https://doi.org/10.1007/978-3-031-59167-9_4}. % TODO - not sure what citation generator / tool you guys are using so this may need to be updated to align with the citations above
+
 \end{thebibliography}
 
 \newpage
@@ -133,7 +187,7 @@ keywords: {Optimal control;Vehicle dynamics;Trajectory;Complex systems;Real-time
 \appendix
 \section{Appendix}
   \subsection{TBD}
-  
+    % Could include images of simulation environment here
     \clearpage
     \newpage
 \end{document}
