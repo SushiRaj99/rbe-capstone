@@ -10,6 +10,7 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{url}
+\usepackage{outlines}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \newcommand{\photo}[1]{%
@@ -112,7 +113,7 @@ To reduce the amount of work input needed to tune these parameters, it is propos
     To ensure the RL agent generalizes across site layouts rather than overfitting to a single map, multiple warehouse-style occupancy grid maps will be introduced. Maps will vary along key structural dimensions---corridor width, obstacle density, and open floor area---to expose the agent to the range of layouts described in the project motivation. Together, these components will complete the simulation layer and allow the reinforcement learning environment to be built directly on top of it.
 
     \subsection{Reinforcement Learning}
-    The RL component of the project will be developed within the simulation environment, with the goal of having a trainable RL agent that can tune planner parameters directly through the Nav2 stack. The RL agent will be implemented using the PPO algorithm, but there were two design options explored for RL architecture of the states, actions, and rewards.
+    The RL component of the project will be developed within the simulation environment, with the goal of having a trainable RL agent that can tune planner parameters directly through the Nav2 stack. The RL agent will be implemented using the PPO algorithm, but there were two design options explored for RL architecture of the states, actions, and rewards. It's worth noting that states, actions, and rewards for each design are not fully fleshed out due to the iterative nature of RL development and the tinkering that's often involved within machine learning workflows; but the general structure of each design is described below along with the pros and cons of each approach. 
 
     \subsubsection{One-Time Parameter Tuning during Initialization}
     With this approach, the RL agent is only responsible for configuring the local planner's parameters one time before the robot begins navigating (e.g. at the start of each episode):
@@ -127,7 +128,7 @@ To reduce the amount of work input needed to tune these parameters, it is propos
     \subsubsection{Dynamic Parameter Tuning during Navigation}
     With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters throughout the navigation process:
     \begin{itemize}
-        \item State would need to include the robot's current pose, velocity, distance from the goal, and any on-board sensor data (e.g. sampled LiDAR segment returns). The state vector could also be augmented to include prior poses or future waypoints from the global planner to provide more context for decision making.
+        \item State would need to include the robot's current pose, velocity, distance from the goal, and information derived from any on-board sensor data (e.g. sampled LiDAR segment returns). The state vector could also be augmented to include prior poses or future waypoints from the global planner to provide more context for decision making.
         \item Actions could either include presets for the local planner parameters or adjustments to the parameters (e.g. increase clearance by 0.1m, decrease path smoothness by 0.05, etc.).
         \item The reward function would resemble more standard direct RL control reward functions with a large positive reward for reaching the goal, a large negative reward for collisions, and small negative rewards for all other movements to encourage finding the shortest path to the goal. The reward function could also be expanded to include some of the metrics described in Section I for path quality, such as applying a small negative reward for high path curvature or large changes in velocity to encourage smoother paths.
     \end{itemize}
@@ -135,6 +136,7 @@ To reduce the amount of work input needed to tune these parameters, it is propos
     This is a more ``hands on'' approach as the RL agent is more involved during the navigation process than the one-time tuning approach; so this approach is likely to be more complex to implement. However, since the state vector is a lower dimensionality and more closely tied to interactions with the environment, the RL agent will have more feedback during each episode to learn from and may converge to an optimal policy more quickly than the one-time tuning approach.
 
     \subsubsection{Current Decision}
+    Given the time constraints for the project, the dynamic parameter tuning approach will be used going forward. While the one-time tuning approach may seem simpler to implement on the surface due to its relatively ``hands off'' nature, the lack of feedback combined with potentially high dimensionality of the state space will make RL training too expensive. If anything, the dynamic tuning's ``hands on'' nature should make it more malleable from an RL training perspective, as it provides the agent the opportunity to learn from each time step during navigation within a single episode. Regardless of the method used to translate a static map into a state vector (as this is a separate complicated problem in and of itself), the state vector of the dynamic tuning approach is much more similar to the inputs of the local planner than the state vector of the one-time tuning approach. This should help facilitate easier learning for the RL agent since there's already an established correlation between parameters in the state vector and the performance of the local planner that the RL agent is trying to optimize.
     
 \section{Project Timeline}
 To keep the project on track, the team used the biweekly meeting cadence in conjunction with the class schedule to develop the timeline shown below. The team meets once a week via zoom to go over tasks from previous weeks; as well as set new goals for the upcoming week and assign, or reassign, tasks as needed to keep the project moving. The group is also in constant contact via group chat for day-to-day questions and updates.
@@ -156,7 +158,18 @@ The meeting schedule is shown below for the formal biweekly meetings.
 \end{itemize}
 
 \section{Task division}
-
+While the team is working collaboratively on all aspects of the project, the following task division was established as a guiding principle to ensure accountability and efficient progress:
+\begin{outline}
+    \1 Andrew
+        \2 Unified environment setup and tooling
+        \2 Simulation environment development
+    \1 Everett
+        \2 Evaluation definitions and analysis
+        \2 RL pipeline design and scripting
+    \1 Sushant
+        \2 Navigation and path planning implementation
+        \2 Parameter selection and weights for path planning (and RL tuning) 
+\end{outline}
 
 \newpage
 \section{Abbreviations and Acronyms}\label{AA}
