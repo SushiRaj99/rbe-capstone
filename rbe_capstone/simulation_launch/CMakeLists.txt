@@ -7,4 +7,10 @@ install(DIRECTORY launch rviz maps
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/diff_drive_model.py
+  scripts/lidar_model.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

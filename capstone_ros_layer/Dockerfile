@@ -29,6 +29,7 @@ RUN apt update && apt install -y \
   ros-jazzy-nav2-simple-commander \
   ros-jazzy-rviz2 \
   ros-jazzy-joint-state-publisher-gui \
+  ros-jazzy-rqt-graph \
   nano \
   vim-gtk3 \
   cscope \

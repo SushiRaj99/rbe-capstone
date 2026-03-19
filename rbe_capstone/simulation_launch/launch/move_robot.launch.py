@@ -1,12 +1,13 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    # Process the TurtleBot4 xacro URDF into a robot_description string
+    # Robot description
     robot_description = Command([
         FindExecutable(name='xacro'), ' ',
         PathJoinSubstitution([
@@ -17,13 +18,13 @@ def generate_launch_description():
 
     rviz_config = PathJoinSubstitution([
         FindPackageShare('simulation_launch'),
-        'rviz', 'turtlebot4.rviz',
+        'rviz', 'tb4_with_lasers.rviz',
     ])
 
     map_name = DeclareLaunchArgument(
         'map_name',
         default_value='warehouse',
-        description='Name of the map to load (must exist as maps/<name>/<name>.yaml)',
+        description='Map name'
     )
 
     map_yaml = PathJoinSubstitution([
@@ -33,10 +34,25 @@ def generate_launch_description():
         PythonExpression(["'", LaunchConfiguration('map_name'), "' + '.yaml'"]),
     ])
 
+    # Nav2 bringup
+    nav2_bringup = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('nav2_bringup'),
+                'launch',
+                'bringup_launch.py'
+            ])
+        ]),
+        launch_arguments={
+            'map': map_yaml,
+            'use_sim_time': 'false',
+        }.items()
+    )
+
     return LaunchDescription([
         map_name,
 
-        # Publishes /tf and /robot_description from the URDF
+        # Robot state publisher
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
@@ -44,20 +60,48 @@ def generate_launch_description():
             output='screen',
             parameters=[{'robot_description': robot_description}],
         ),
-        # Static TF (TEMPORARY) - TODO, make an actual odometry source and drop this
+
+        # laser scanner model for perception
+        Node(
+            package='simulation_launch',
+            executable='lidar_model.py',
+            name='lidar_model',
+            output='screen',
+        ),
+
+        # Localization via AMCL
+        #Node(
+        #    package='nav2_amcl',
+        #    executable='amcl',
+        #    name='amcl',
+        #    output='screen',
+        #    parameters=[{
+        #        'use_sim_time': False,
+        #        'scan_topic': 'scan',
+        #        'base_frame_id': 'base_link',
+        #        'odom_frame_id': 'odom',
+        #        'global_fram_id': 'map',
+        #    }],
+        #),
+
+        # 'Perfect' Localization
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
             name='map_to_odom',
             arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
         ),
-        # Static TF (TEMPORARY) - TODO, make an actual odometry source and drop this
+
+        # Differential drive model node to map odom to base_link
         Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='odom_to_base_link',
-            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link'],
+            package='simulation_launch',
+            executable='diff_drive_model.py',
+            name='diff_drive_model',
+            output='screen',
         ),
+
+        # Nav2 stack (planner, controller, BT, etc.)
+        nav2_bringup,
 
         # Load the map
         Node(
@@ -76,13 +120,11 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'autostart': True,
-                'node_names': ['map_server'],
+                'node_names': ['map_server'], #, 'amcl']
             }],
         ),
 
-        # Enable 
-
-        # RViz2 with our config
+        # RViz
         Node(
             package='rviz2',
             executable='rviz2',
