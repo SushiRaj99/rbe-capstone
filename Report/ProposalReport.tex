@@ -158,7 +158,7 @@ To reduce the amount of work input needed to tune these parameters, it is propos
     \subsubsection{Dynamic Parameter Tuning during Navigation}
     With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters throughout the navigation process:
     \begin{itemize}
-        \item State would need to include the robot's current pose, velocity, distance from the goal, and information derived from any on-board sensor data (e.g. sampled LiDAR segment returns). The state vector could also be augmented to include prior poses or future waypoints from the global planner to provide more context for decision making.
+        \item State would need to include the robot's current pose, velocity, distance from the goal, and information derived from any on-board sensor data (e.g. downsampled LiDAR returns or costmap). The state vector could also be augmented to include prior poses or future waypoints from the global planner to provide more context for decision making.
         \item Actions could either include presets for the local planner parameters or adjustments to the parameters (e.g. increase clearance by 0.1m, decrease path smoothness by 0.05, etc.).
         \item The reward function would resemble more standard direct RL control reward functions with a large positive reward for reaching the goal, a large negative reward for collisions, and small negative rewards for all other movements to encourage finding the shortest path to the goal. The reward function could also be expanded to include some of the metrics described in Section I for path quality, such as applying a small negative reward for high path curvature or large changes in velocity to encourage smoother paths.
     \end{itemize}
@@ -174,13 +174,14 @@ To reduce the amount of work input needed to tune these parameters, it is propos
 To keep the project on track, the team used the biweekly meeting cadence in conjunction with the class schedule to develop the timeline shown below. The team meets once a week via zoom to go over tasks from previous weeks; as well as set new goals for the upcoming week and assign, or reassign, tasks as needed to keep the project moving. The group is also in constant contact via group chat for day-to-day questions and updates.
 \begin{itemize}
     \item February 6th – Full problem definition and solution outline
-    \item February 20th - Literature review complete, report draft started
+    \item February 20th – Literature review complete, report draft started
     \item February 27th – Basic sim environment framework built
-    \item March 13th - Basic simulation working
+    \item March 13th – Basic simulation environment working
     \item March 20th – Finish proposal report and presentation
-    \item March 23rd – Path Evaluation working in simulation
-    \item April 17th - RL pipeline implemented and training started
-    \item May 1st - Complete report / presentation
+    \item March 27th – Navigation working in simulation
+    \item April 3rd – Path Evaluation working in simulation
+    \item April 17th – RL pipeline implemented and training started
+    \item May 1st – Complete report / presentation
 \end{itemize}
 The meeting schedule is shown below for the formal biweekly meetings.
 \begin{itemize}
