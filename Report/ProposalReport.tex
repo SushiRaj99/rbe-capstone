@@ -42,7 +42,7 @@ skraj@wpi.edu}}
 \maketitle
 
 \begin{abstract}
-In this report, it is proposed to utilize an offline reinforcement learning program in conjunction with one or more basic path planning algorithms to efficiently optimize a simulated turtle-bot travel path in a 2D environment based on the manipulation of several key parameters with the performance measured against path length, smoothness, travel time, velocity, and clearance.
+In this report, it is proposed to utilize a reinforcement learning program in conjunction with one or more basic path planning algorithms to efficiently optimize a simulated turtle-bot travel path in a 2D environment based on the manipulation of several key parameters with the performance measured against path length, smoothness, travel time, velocity, and clearance.
 \end{abstract}
 
 %\begin{IEEEkeywords}
@@ -86,6 +86,33 @@ To reduce the amount of work input needed to tune these parameters, it is propos
         In this research paper, Ting et. al. present a modified Proximal Policy Optimization (PPO) in conjunction with a deep reinforcement learning (DRL) algorithm in order to reduce the time needed  to move an agent through an environment. Traditional DRL can require millions of episodes in order to converge on a single action. To reduce the number of episodes required and thus the calculation time for each move, they proposed a distance-based weighted dense reward function. The reward function they proposed is seen below where $R_g$ is the reward when the goal is reached, $R_c$ is the collision penalty, $R_s$ is a small step penalty, and $R_sh$ is a distance shaping reward.
         \[R = R_g+R_c+R_s+R_sh\]
         The critical part of the equation is $R_sh$, which utilized the euclidean distance to the goal to provide a higher value reward for better steps. For the RL algorithm we are implementing, we intend to use a similar reward function to reduce the learning time needed for each run or environment we simulate. 
+
+        \subsubsection{A Hybrid Approach to Indoor Social Navigation: Integrating Reactive Local Planning and Proactive Global Planning \cite{b9}}
+
+        In this paper, Debnath et al. propose a modular navigation framework for  indoor social navigation that combines a classical global planner with a 
+        deep reinforcement learning (DRL) based local planner. The global planner generates waypoints and assigns Gaussian soft costs around detected pedestrians 
+        to anticipate their future positions, while the trained local planner dynamically follows these waypoints while avoiding imminent collisions in real time. 
+        The reward function used to train the local planner includes eight terms covering goal reaching, collision penalties, waypoint tracking progress, pedestrian 
+        proximity avoidance, and a small per-timestep penalty to encourage efficiency. Through experiments across both cooperative and uncooperative pedestrian scenarios, their hybrid system outperformed both a traditional 
+        DWA planner and a standalone RL baseline, with the RL-augmented system achieving a notably lower collision rate. 
+
+        This paper is directly relevant to the dynamic parameter tuning approach adopted in this project. Their reactive local RL planner continuously 
+        adjusts navigation behavior based on local observations (including proximity to obstacles, heading toward waypoints, and distance to goal), at every timestep 
+        during navigation. This is very similar to what the proposed implementation in this project is, where the RL agent observes local state and adjusts planner parameters throughout the 
+        navigation process rather than making a single configuration decision upfront. Their reward structure combines dense per-step terms with sparse goal and collision signals and their result that a learning-based local planner substantially outperformed fixed-parameter DWA confirms the premise of POT-r: that static, hand-tuned 
+        planner parameters can miss out on meaningful performance beneifts. By leveraging an RL agent to dynamically tune these parameters, this project aims to achieve similar performance gains in path quality and safety across a range of warehouse environments.
+
+        \subsubsection{Deep Reinforcement Learning with PPO for Autonomous Mobile Robot Navigation Using ROS 2 Framework \cite{b10}}
+
+        In this paper, Rana and Kaveendran implement a PPO-based deep reinforcement learning agent to train a TurtleBot3 navigation policy from scratch within a ROS2 environment. The agent observes the robot's 
+        surroundings through a LiDAR scan vector and directly outputs normalized linear and angular velocity commands at each timestep, making it the sole navigation controller rather than an augmentation of an 
+        existing planner. Training was conducted using a minimal two-term reward function, including a small positive reward for forward progress and a large 
+        negative penalty for collisions. This took roughly 4 hours using Stable-Baselines3's PPO implementation integrated with a custom ROS2 Gymnasium environment. The trained policy resulted in better performance, and behavior improvements such as 
+        slowing near tight spaces. 
+    
+        This paper is particularly relevant as a validation of a similar implementation being used in this project: ROS2, Gymnasium, PPO, and a TurtleBot platform. The key 
+        distinction is that their RL agent replaces the planner entirely by outputting direct velocity commands, whereas this project's agent acts as a meta-controller. Their training time 
+        was approximately four hours for a significantly harder problem (the agent must learn full navigation from raw sensor data), providing reassurance that the team's proposed approach is viable.
 
         \subsubsection{Other Noteworthy Resources}
         In addition to the papers described above, there were a number of other papers that were reviewed which provided supplemental information for shaping the project. \cite{b5} and \cite{b6} provided metrics and insights on planner path evaluation which we plan to utilize for our own evaluation metrics. \cite{b7} and \cite{b8} demonstrated more examples which utilized RL within some sort of path planning framework for a mobile robot (including both direct and indirect RL control).
@@ -196,6 +223,10 @@ keywords: {Optimal control;Vehicle dynamics;Trajectory;Complex systems;Real-time
 \bibitem{b7} C.-C. Wong, K.-D. Weng, and B.-Y. Yu, “Multi-Robot Navigation System Design Based on Proximal Policy Optimization Algorithm,” Information, vol. 15, no. 9, p. 518, Aug. 2024, doi: \url{https://doi.org/10.3390/info15090518}. % TODO - not sure what citation generator / tool you guys are using so this may need to be updated to align with the citations above
 
 \bibitem{b8} F. Almeida, G. Le\~{a}o, and A. Sousa, “An Educational Kit for Simulated Robot Learning in ROS 2,” Robot 2023: Sixth Iberian Robotics Conference, vol. 2, pp. 513-525, doi: \url{https://doi.org/10.1007/978-3-031-59167-9_4}. % TODO - not sure what citation generator / tool you guys are using so this may need to be updated to align with the citations above
+
+\bibitem{b9} A. Debnath, G. J. Stein, and J. Ko\v{s}eck\'{a}, "A Hybrid Approach to Indoor Social Navigation: Integrating Reactive Local Planning and Proactive Global Planning," \textit{2025 IEEE International Conference on Robotics and Automation (ICRA)}, Atlanta, USA, May 2025, pp. 10432--10438, doi: \url{https://doi.org/10.1109/ICRA55743.2025.11127475}.
+
+\bibitem{b10} A. Rana and B. Kaveendran, "Deep Reinforcement Learning with PPO for Autonomous Mobile Robot Navigation Using ROS 2 Framework," \textit{International Journal for Research in Applied Science and Engineering Technology (IJRASET)}, vol. 13, no. VII, Jul. 2025, doi: \url{https://doi.org/10.22214/ijraset.2025.73330}.
 
 \end{thebibliography}
 
