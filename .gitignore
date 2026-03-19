@@ -1,4 +1,4 @@
-Report/
+Report/*
 !Report/*.tex
 !Report/*.pdf
 !Report/*.png
