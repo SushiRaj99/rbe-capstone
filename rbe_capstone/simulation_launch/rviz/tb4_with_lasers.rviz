@@ -5,9 +5,10 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /LaserScan1
+        - /LaserScan1/Topic1
+        - /Path1
       Splitter Ratio: 0.5
-    Tree Height: 323
+    Tree Height: 476
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -540,6 +541,34 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.10000000149011612
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /plan
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -583,7 +612,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7699998617172241
+      Pitch: 0.7749998569488525
       Target Frame: map
       Value: Orbit (rviz)
       Yaw: 1.065000057220459
@@ -594,7 +623,7 @@ Window Geometry:
   Height: 1359
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000019b000004f9fc0200000004fb000000100044006900730070006c006100790073010000003b000001cc000000c700fffffffb0000001200530065006c0065006300740069006f006e010000020d000000d50000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007301000002e8000000d50000005c00fffffffb0000000a0056006900650077007301000003c300000171000000a000ffffff00000853000004f900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000019b000004f9fc0200000004fb000000100044006900730070006c006100790073010000003b00000265000000c700fffffffb0000001200530065006c0065006300740069006f006e01000002a60000007b0000005c00fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000327000000960000005c00fffffffb0000000a0056006900650077007301000003c300000171000000a000ffffff00000853000004f900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
@@ -602,5 +631,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 2548
-  X: 0
+  X: 2560
   Y: 0

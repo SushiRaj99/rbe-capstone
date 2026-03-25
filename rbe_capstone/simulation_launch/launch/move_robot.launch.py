@@ -124,6 +124,14 @@ def generate_launch_description():
             }],
         ),
 
+        # Add Goal Manager to bring up the send_goal action server
+        Node(
+            package='simulation_launch',
+            executable='goal_manager.py',
+            name='goal_manager',
+            output='screen',
+        ),
+
         # RViz
         Node(
             package='rviz2',

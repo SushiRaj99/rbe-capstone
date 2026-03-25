@@ -1,0 +1,21 @@
+# Goal Configuration
+string goal_id
+float64 x
+float64 y
+float64 yaw
+float64 xy_tolerance
+float64 yaw_tolerance
+
+---
+# Result
+string goal_id
+string nav2_status
+bool goal_reached
+float64 final_xy_error
+float64 final_yaw_error
+
+---
+# Feedback
+string goal_id
+float64 curr_xy_error
+float64 curr_yaw_error
