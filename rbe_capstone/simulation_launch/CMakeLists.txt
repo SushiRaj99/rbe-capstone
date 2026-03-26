@@ -10,7 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/SendGoalToNav2.action"
 )
 
-install(DIRECTORY launch rviz maps
+install(DIRECTORY launch rviz maps config
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -18,6 +18,7 @@ install(PROGRAMS
   scripts/diff_drive_model.py
   scripts/lidar_model.py
   scripts/goal_manager.py
+  scripts/nav2_goal_client.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

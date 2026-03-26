@@ -46,6 +46,7 @@ RUN echo "alias build_cscope_ws='/root/build_cscope_ws.sh'" >> /root/.bashrc
 RUN echo "alias init_jazzy='source /opt/ros/${ROS_DISTRO}/setup.bash'" >> /root/.bashrc
 RUN echo "alias init_ws='[ -f /root/ws/install/setup.bash ] && source /root/ws/install/setup.bash'" >> /root/.bashrc
 RUN echo "colconbuild()\n{\n\tpushd /root/ws >/dev/null && colcon build \"\$@\" && popd > /dev/null\n}" >> /root/.bashrc
+RUN echo "alias colconclean='pushd /root/ws >/dev/null && rm -rf build install log && popd > /dev/null'" >> /root/.bashrc
 RUN echo "code()\n{\n\tcode-server \"\$@\" --auth=none --ignore-last-opened\n}" >> /root/.bashrc
 
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml && colcon mixin update"

@@ -60,7 +60,7 @@ class GoalManager(Node):
             f"Received goal: id={request.goal_id}, x={request.x}, y={request.y}, yaw={request.yaw}, xy_tolerance={request.xy_tolerance}, yaw_tolerance={request.yaw_tolerance}"
         )
         # Cancel any existing goal before sending a new one:
-        if self.nav2_goal_ptr != None:
+        if self.nav2_goal_ptr is not None:
             self.get_logger().warn(f"Cancelling previous goal (id={self.goal_id})")
             self.nav2_goal_ptr.cancel_goal_async()
         # Send goal to Nav2:
@@ -90,11 +90,14 @@ class GoalManager(Node):
             result.goal_reached = False
             result.final_xy_error = xy_error if xy_error != None else float('inf')
             result.final_yaw_error = yaw_error if yaw_error != None else float('inf')
+            nonetest = (
+                (self.xy_tolerance != None) and (self.yaw_tolerance != None) and (xy_error != None) and (yaw_error != None)
+            )
             if goal_ptr.is_cancel_requested:
                 self.get_logger().info(f"Goal canceled (id={self.goal_id})")
                 goal_ptr.canceled()
                 return result
-            elif ((self.xy_tolerance != None) and (self.yaw_tolerance != None)) and ((xy_error <= self.xy_tolerance) and (yaw_error <= self.yaw_tolerance)):
+            elif ((nonetest) and (yaw_error <= self.yaw_tolerance)):
                 self.get_logger().info(f"Goal reached (id={self.goal_id})")
                 if self.nav2_goal_ptr:
                     self.nav2_goal_ptr.cancel_goal_async()  # Allows for early termination of nav2 process to speed up training
@@ -143,7 +146,7 @@ class GoalManager(Node):
 
     def compute_errors(self) -> Tuple[Optional[float], Optional[float]]:
         xy_error, yaw_error = None, None
-        if (self.nav2_goal_ptr == None) or (len(self.goal_id) == 0):
+        if (self.nav2_goal_ptr is None) or (len(self.goal_id) == 0):
             return xy_error, yaw_error
         # Attempt to acquire transform and evaluate error relative to goal pose and tolerances:
         try:

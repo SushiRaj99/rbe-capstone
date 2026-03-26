@@ -49,8 +49,21 @@ def generate_launch_description():
         }.items()
     )
 
+    # Goal point configuration:
+    goal_config_path = PathJoinSubstitution([
+        FindPackageShare('simulation_launch'),
+        'config',
+        'goalpoints.yaml',
+    ])
+    goal_config_arg = DeclareLaunchArgument(
+        'goal_config',
+        default_value=goal_config_path,
+        description='Goal point definition (path to YAML or dictionary of parameters)'
+    )
+
     return LaunchDescription([
         map_name,
+        goal_config_arg,
 
         # Robot state publisher
         Node(
@@ -124,12 +137,21 @@ def generate_launch_description():
             }],
         ),
 
-        # Add Goal Manager to bring up the send_goal action server
+        # Add Goal Manager to bring up the send_goal_to_nav2 action server
         Node(
             package='simulation_launch',
             executable='goal_manager.py',
             name='goal_manager',
             output='screen',
+        ),
+
+        # Add a Goal Client to use the send_goal_to_nav2 action server
+        Node(
+            package='simulation_launch',
+            executable='nav2_goal_client.py',
+            name='nav2_goal_client',
+            output='screen',
+            parameters=[goal_config_path],
         ),
 
         # RViz
