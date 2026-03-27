@@ -20,18 +20,16 @@ class SendGoalToNav2Client(Node):
         # Since we want to declare initial state of parameters as 'None' to avoid
         # queueing incomplete goal point definitions, the parameter descriptors will 
         # be used to avoid the deprecation warnings: 
-        self.declare_parameter('goal_id', "") #value=ParameterValue(type=ParameterType.PARAMETER_NOT_SET), descriptor=ParameterDescriptor(type=ParameterType.PARAMETER_STRING))
-        self.declare_parameter('x', float('nan')) #value=ParameterValue(type=ParameterType.PARAMETER_NOT_SET), descriptor=ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('y', float('nan')) #value=ParameterValue(type=ParameterType.PARAMETER_NOT_SET), descriptor=ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('yaw', float('nan')) #value=ParameterValue(type=ParameterType.PARAMETER_NOT_SET), descriptor=ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('xy_tolerance', float('nan')) #value=ParameterValue(type=ParameterType.PARAMETER_NOT_SET), descriptor=ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('yaw_tolerance', float('nan')) #value=ParameterValue(type=ParameterType.PARAMETER_NOT_SET), descriptor=ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('goal_queue', "") #[])
+        self.declare_parameter('goal_id', "")
+        self.declare_parameter('x', float('nan'))
+        self.declare_parameter('y', float('nan'))
+        self.declare_parameter('yaw', float('nan'))
+        self.declare_parameter('xy_tolerance', float('nan'))
+        self.declare_parameter('yaw_tolerance', float('nan'))
+        self.declare_parameter('goal_queue', "")
         # Set up a first-in-first-out (FIFO) queue for triggering send_goal_to_nav2 actions: 
         self.goal_FIFO = []
         self.main_timer = self.create_timer(0.5, self.main_loop, callback_group=self.cb_group)
-        #self.queue_timer = self.create_timer(1.0, self.populate_queue)
-        #self.action_timer = self.create_timer(1.0, self.unload_queue)
         self.goal_active = False
         self.server_ready = False
     
@@ -64,8 +62,6 @@ class SendGoalToNav2Client(Node):
                 param_goal_q = json.loads(param_goal_q_str)
             except json.JSONDecodeError as e:
                 self.get_logger().error(f"Failed to parse goal_queue JSON: {e}")
-        self.get_logger().info(f"Raw goal_queue param: {param_goal_q_str}")
-        self.get_logger().info(f"Parsed goal_queue param: {param_goal_q}")
         added_singlept, added_waypts = False, False
         # Prioritize adding single goal point definitions to the FIFO first:
         if (not math.isnan(param_x)) and (not math.isnan(param_y)) and (not math.isnan(param_yaw)) and \
@@ -94,12 +90,12 @@ class SendGoalToNav2Client(Node):
         # Finally, reset parameters after points have been added to the FIFO to prevent duplicates:
         if (added_singlept):
             self.set_parameters([
-                Parameter('goal_id', value=""), #ParameterValue(type=ParameterType.PARAMETER_NOT_SET)),
-                Parameter('x', value=float('nan')), #ParameterValue(type=ParameterType.PARAMETER_NOT_SET)),
-                Parameter('y', value=float('nan')), #ParameterValue(type=ParameterType.PARAMETER_NOT_SET)),
-                Parameter('yaw', value=float('nan')), #ParameterValue(type=ParameterType.PARAMETER_NOT_SET)),
-                Parameter('xy_tolerance', value=float('nan')), #ParameterValue(type=ParameterType.PARAMETER_NOT_SET)),
-                Parameter('yaw_tolerance', value=float('nan')), #ParameterValue(type=ParameterType.PARAMETER_NOT_SET))
+                Parameter('goal_id', value=""),
+                Parameter('x', value=float('nan')),
+                Parameter('y', value=float('nan')),
+                Parameter('yaw', value=float('nan')),
+                Parameter('xy_tolerance', value=float('nan')),
+                Parameter('yaw_tolerance', value=float('nan')),
             ])
         if (added_waypts):
             self.set_parameters([Parameter('goal_queue', value="")])
@@ -185,8 +181,6 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
-    #rclpy.spin(node)
-    #rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

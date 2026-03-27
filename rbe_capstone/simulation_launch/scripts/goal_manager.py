@@ -4,12 +4,14 @@ from rclpy.node import Node
 from rclpy.action import ActionClient, ActionServer
 from rclpy.action.client import ClientGoalHandle
 from rclpy.action.server import ServerGoalHandle
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped
-#from tf_transformations import quaternion_from_euler
 from tf2_ros import Buffer, TransformListener
 from simulation_launch.action import SendGoalToNav2
+from lifecycle_msgs.srv import GetState
 
 import time, math
 import asyncio
@@ -36,12 +38,19 @@ def decode_nav2_status(status_code: int) -> str:
 class GoalManager(Node):
     def __init__(self):
         super().__init__('goal_manager')
+        self.cb_group = ReentrantCallbackGroup()  # allows timers to tick while manage_send_goal is blocking
         self.client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.client.wait_for_server()
-        self.action_server = ActionServer(self, SendGoalToNav2, 'send_goal_to_nav2', self.manage_send_goal)
+        self.action_server = ActionServer(self, SendGoalToNav2, 'send_goal_to_nav2', self.manage_send_goal, callback_group=self.cb_group)
         self.reset_goal_state()
+        self.pending_result = None
+        self.manual_nav2_override = False
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.nav2_state_client = self.create_client(GetState, '/bt_navigator/get_state')
+        self.nav2_active = False
+        self.monitor_timer = self.create_timer(0.1, self.monitor_goal, callback_group=self.cb_group)        # NEW: cb_group
+        self.nav2_state_timer = self.create_timer(0.1, self.check_nav2_active, callback_group=self.cb_group)  # NEW: cb_group
 
     def reset_goal_state(self) -> None:
         self.sendgoal_goal_ptr: ServerGoalHandle = None
@@ -53,8 +62,9 @@ class GoalManager(Node):
         self.xy_tolerance: float = None
         self.yaw_tolerance: float = None
         self.nav2_status: str = None
+        self.goal_transmitted: bool = False
 
-    async def manage_send_goal(self, goal_ptr: ServerGoalHandle) -> SendGoalToNav2.Result:
+    def manage_send_goal(self, goal_ptr: ServerGoalHandle) -> SendGoalToNav2.Result:
         request = goal_ptr.request
         self.get_logger().info(
             f"Received goal: id={request.goal_id}, x={request.x}, y={request.y}, yaw={request.yaw}, xy_tolerance={request.xy_tolerance}, yaw_tolerance={request.yaw_tolerance}"
@@ -63,72 +73,117 @@ class GoalManager(Node):
         if self.nav2_goal_ptr is not None:
             self.get_logger().warn(f"Cancelling previous goal (id={self.goal_id})")
             self.nav2_goal_ptr.cancel_goal_async()
-        # Send goal to Nav2:
-        self.send_goal(request.x, request.y, request.yaw)
+        # Store state:
         self.sendgoal_goal_ptr = goal_ptr
-        self.goal_id = request.goal_id
-        if (len(self.goal_id.strip()) == 0): self.goal_id = "run_" + str(round(time.time()))
+        self.goal_id = request.goal_id or f"run_{round(time.time())}"
         self.x_goal = request.x
         self.y_goal = request.y
         self.yaw_goal = request.yaw
         self.xy_tolerance = request.xy_tolerance
         self.yaw_tolerance = request.yaw_tolerance
-        # Continually monitor progress:
-        while rclpy.ok():
-            # Compute errors and provide feedback:
-            xy_error, yaw_error = self.compute_errors()
-            if (xy_error != None) and (yaw_error != None):
-                feedback = SendGoalToNav2.Feedback()
-                feedback.goal_id = self.goal_id
-                feedback.curr_xy_error = xy_error
-                feedback.curr_yaw_error = yaw_error
-                goal_ptr.publish_feedback(feedback)
-            # Prepare a result and check for termination conditions:
-            result = SendGoalToNav2.Result()
-            result.goal_id = self.goal_id
-            result.nav2_status = self.nav2_status if self.nav2_status != None else "UNKNOWN"  # guard: None is invalid for a string field
-            result.goal_reached = False
-            result.final_xy_error = xy_error if xy_error != None else float('inf')
-            result.final_yaw_error = yaw_error if yaw_error != None else float('inf')
-            nonetest = (
-                (self.xy_tolerance != None) and (self.yaw_tolerance != None) and (xy_error != None) and (yaw_error != None)
-            )
-            if goal_ptr.is_cancel_requested:
-                self.get_logger().info(f"Goal canceled (id={self.goal_id})")
-                goal_ptr.canceled()
-                return result
-            elif ((nonetest) and (yaw_error <= self.yaw_tolerance)):
-                self.get_logger().info(f"Goal reached (id={self.goal_id})")
-                if self.nav2_goal_ptr:
-                    self.nav2_goal_ptr.cancel_goal_async()  # Allows for early termination of nav2 process to speed up training
-                result.goal_reached = True
-                goal_ptr.succeed()
-                return result
-            elif (self.nav2_status != None):
-                self.get_logger().info(f"Nav2 finished first (status={self.nav2_status})")
-                goal_ptr.succeed()
-                return result
-            await asyncio.sleep(0.1)
+        self.nav2_status = None
+        # Block here until monitor_goal settles the goal state (succeed/canceled) and clears sendgoal_goal_ptr.
+        # This is safe because the ReentrantCallbackGroup + MultiThreadedExecutor allows the timers to keep ticking
+        # concurrently. Without this block, the execute callback returns immediately, ROS2 auto-aborts the goal
+        # handle, and any later call to goal_ptr.succeed() crashes with an invalid state transition.
+        while rclpy.ok() and self.sendgoal_goal_ptr is not None:
+            time.sleep(0.05)
+        return self.pending_result if self.pending_result is not None else SendGoalToNav2.Result()
 
-    def send_goal(self, x: float, y: float, yaw: float) -> None:
+    def monitor_goal(self) -> None:
+        # Confirm that a valid request to send a goal to Nav2 was made:
+        if self.sendgoal_goal_ptr is None:
+            return
+        # Confirm Nav2 is active:
+        if not self.nav2_active:
+            self.get_logger().info("Waiting for Nav2 to become active...")
+            return
+        # Ensure that the goal point has been sent to Nav2 once before proceeding:
+        if (self.nav2_goal_ptr is None) and (not self.goal_transmitted):
+            self.get_logger().info("Nav2 active, sending goal...")
+            self.transmit_goal(self.x_goal, self.y_goal, self.yaw_goal)
+            self.goal_transmitted = True
+            self.manual_nav2_override = False
+            return
+        goal_ptr = self.sendgoal_goal_ptr
+        xy_error, yaw_error = self.compute_errors()
+        # Publish feedback:
+        if xy_error is not None and yaw_error is not None:
+            feedback = SendGoalToNav2.Feedback()
+            feedback.goal_id = self.goal_id
+            feedback.curr_xy_error = xy_error
+            feedback.curr_yaw_error = yaw_error
+            goal_ptr.publish_feedback(feedback)
+        # Prepare result:
+        result = SendGoalToNav2.Result()
+        result.goal_id = self.goal_id
+        result.nav2_status = self.nav2_status if self.nav2_status is not None else "UNKNOWN"
+        result.goal_reached = False
+        result.final_xy_error = xy_error if xy_error else float('inf')
+        result.final_yaw_error = yaw_error if yaw_error else float('inf')
+        # Cancel request
+        if goal_ptr.is_cancel_requested:
+            self.get_logger().info(f"Goal canceled (id={self.goal_id})")
+            self.pending_result = result   # passes result to manage_send_goal() before unblocking it
+            goal_ptr.canceled()
+            self.reset_goal_state()         # clears sendgoal_goal_ptr, unblocking manage_send_goal()
+            self.manual_nav2_override = False
+            return
+        # Success condition
+        if (
+            xy_error is not None and yaw_error is not None and
+            xy_error <= self.xy_tolerance and yaw_error <= self.yaw_tolerance
+        ):
+            self.get_logger().info(f"Goal reached (id={self.goal_id})")
+            if self.nav2_goal_ptr:
+                self.nav2_goal_ptr.cancel_goal_async()  # Allows for early termination of nav2 process to speed up training
+            result.goal_reached = True
+            self._pending_result = result   # passes result to manage_send_goal() before unblocking it
+            goal_ptr.succeed()
+            self.reset_goal_state()         # clears sendgoal_goal_ptr, unblocking manage_send_goal()
+            self.manual_nav2_override = True
+            return
+        # Nav2 finished
+        if (not self.manual_nav2_override) and (self.nav2_status in ["SUCCEEDED", "CANCELED", "ABORTED"]):
+            self.get_logger().info(f"Nav2 finished first ({self.nav2_status})")
+            self._pending_result = result   # passes result to manage_send_goal() before unblocking it
+            goal_ptr.succeed()
+            self.reset_goal_state()         # clears sendgoal_goal_ptr, unblocking manage_send_goal()
+            self.manual_nav2_override = False
+            return
+
+    def transmit_goal(self, x: float, y: float, yaw: float) -> None:
         self.client.wait_for_server()
         goal_msg = NavigateToPose.Goal()
-        # Convert 2D pose command (x, y, yaw) to 3D for Nav2 (x, y, z with quaternion orientation):
-        #this_quat_list = quaternion_from_euler(0.0, 0.0, yaw)
-        # Populate and send message:
+        # Convert 2D pose command (x, y, yaw) to 3D (x, y, z with quaternion orientation), then send it to Nav2:
         goal_msg.pose = PoseStamped()
         goal_msg.pose.header.frame_id = "map"
         goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
         goal_msg.pose.pose.position.x = x
         goal_msg.pose.pose.position.y = y
         goal_msg.pose.pose.position.z = 0.0
-        goal_msg.pose.pose.orientation.x = 0.0 #this_quat_list[0]
-        goal_msg.pose.pose.orientation.y = 0.0 #this_quat_list[1]
-        goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0) #this_quat_list[2]
-        goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0) #this_quat_list[3]
+        goal_msg.pose.pose.orientation.x = 0.0
+        goal_msg.pose.pose.orientation.y = 0.0
+        goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
         future = self.client.send_goal_async(goal_msg)
         future.add_done_callback(self.process_goal_response)
     
+    def check_nav2_active(self) -> None:
+        if not self.nav2_state_client.service_is_ready():
+            return
+        req = GetState.Request()
+        future = self.nav2_state_client.call_async(req)
+        future.add_done_callback(self.process_nav2_state)
+
+    def process_nav2_state(self, future: Future) -> None:
+        try:
+            state = future.result().current_state.label
+            self.get_logger().info(f'bt_navigator state: {state}')
+            self.nav2_active = (state == 'active')
+        except Exception as e:
+            self.get_logger().warn(f'Lifecycle check failed: {e}')
+
     def process_goal_response(self, future: Future) -> None:
         goal_ptr: ClientGoalHandle = future.result()
         if not goal_ptr.accepted:
@@ -173,8 +228,16 @@ class GoalManager(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = GoalManager()
-    rclpy.spin(node)
-    rclpy.shutdown()
+    # MultiThreadedExecutor is required so that the monitor_goal() and check_nav2_active() timers
+    # can tick concurrently while manage_send_goal() is blocking in its spin-wait loop.
+    # Without this, manage_send_goal() would deadlock waiting for monitor_goal() to unblock it.
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
+    try:
+        executor.spin()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
