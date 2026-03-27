@@ -14,7 +14,6 @@ from simulation_launch.action import SendGoalToNav2
 from lifecycle_msgs.srv import GetState
 
 import time, math
-import asyncio
 from typing import Tuple, Optional
 
 
