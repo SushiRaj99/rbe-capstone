@@ -13,7 +13,7 @@ from tf2_ros import Buffer, TransformListener
 from simulation_launch.action import SendGoalToNav2
 from lifecycle_msgs.srv import GetState
 
-import time, math
+import time, math, copy
 from typing import Tuple, Optional
 
 
@@ -43,6 +43,7 @@ class GoalManager(Node):
         self.action_server = ActionServer(self, SendGoalToNav2, 'send_goal_to_nav2', self.manage_send_goal, callback_group=self.cb_group)
         self.reset_goal_state()
         self.pending_result = None
+        self.sendgoal_success = False
         self.manual_nav2_override = False
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -87,7 +88,14 @@ class GoalManager(Node):
         # handle, and any later call to goal_ptr.succeed() crashes with an invalid state transition.
         while rclpy.ok() and self.sendgoal_goal_ptr is not None:
             time.sleep(0.05)
-        return self.pending_result if self.pending_result is not None else SendGoalToNav2.Result()
+        final_result = copy.deepcopy(self.pending_result) if (self.pending_result is not None) else SendGoalToNav2.Result() # using deepcopy due to paranoia about mutability and clearing self.pending_result later
+        #self.get_logger().info(f"[DEBUG] manage_send_goal returning: pending_result={self.pending_result}")   # Uncomment for debugging result passing issues
+        self.pending_result = None  # Clear pending result for next goal
+        if (self.sendgoal_success): 
+            goal_ptr.succeed(final_result)
+        else:
+            goal_ptr.canceled(final_result)
+        return final_result
 
     def monitor_goal(self) -> None:
         # Confirm that a valid request to send a goal to Nav2 was made:
@@ -118,13 +126,15 @@ class GoalManager(Node):
         result.goal_id = self.goal_id
         result.nav2_status = self.nav2_status if self.nav2_status is not None else "UNKNOWN"
         result.goal_reached = False
-        result.final_xy_error = xy_error if xy_error else float('inf')
-        result.final_yaw_error = yaw_error if yaw_error else float('inf')
+        result.final_xy_error = xy_error if xy_error is not None else float('inf')
+        result.final_yaw_error = yaw_error if yaw_error is not None else float('inf')
         # Cancel request
         if goal_ptr.is_cancel_requested:
             self.get_logger().info(f"Goal canceled (id={self.goal_id})")
-            self.pending_result = result   # passes result to manage_send_goal() before unblocking it
-            goal_ptr.canceled()
+            self.nav2_goal_ptr.cancel_goal_async()  # Attempt to cancel Nav2 goal as well to keep goal_manager and nav2 states consistent
+            result.nav2_status = self.nav2_status if self.nav2_status is not None else "UNKNOWN"
+            self.pending_result = result    # passes result to manage_send_goal() before unblocking it
+            self.sendgoal_success = False
             self.reset_goal_state()         # clears sendgoal_goal_ptr, unblocking manage_send_goal()
             self.manual_nav2_override = False
             return
@@ -137,16 +147,19 @@ class GoalManager(Node):
             if self.nav2_goal_ptr:
                 self.nav2_goal_ptr.cancel_goal_async()  # Allows for early termination of nav2 process to speed up training
             result.goal_reached = True
-            self._pending_result = result   # passes result to manage_send_goal() before unblocking it
-            goal_ptr.succeed()
+            result.nav2_status = self.nav2_status if self.nav2_status else "UNKNOWN"
+            self.pending_result = result    # passes result to manage_send_goal() before unblocking it
+            self.sendgoal_success = True
             self.reset_goal_state()         # clears sendgoal_goal_ptr, unblocking manage_send_goal()
             self.manual_nav2_override = True
             return
         # Nav2 finished
-        if (not self.manual_nav2_override) and (self.nav2_status in ["SUCCEEDED", "CANCELED", "ABORTED"]):
+        nav2_status_snapshot = self.nav2_status  # take snapshot of nav2 status to avoid race conditions
+        if (not self.manual_nav2_override) and (nav2_status_snapshot is not None): #(self.nav2_status in ["SUCCEEDED", "CANCELED", "ABORTED"]):
             self.get_logger().info(f"Nav2 finished first ({self.nav2_status})")
-            self._pending_result = result   # passes result to manage_send_goal() before unblocking it
-            goal_ptr.succeed()
+            result.nav2_status = nav2_status_snapshot #self.nav2_status
+            self.pending_result = result    # passes result to manage_send_goal() before unblocking it
+            self.sendgoal_success = True
             self.reset_goal_state()         # clears sendgoal_goal_ptr, unblocking manage_send_goal()
             self.manual_nav2_override = False
             return
@@ -178,7 +191,7 @@ class GoalManager(Node):
     def process_nav2_state(self, future: Future) -> None:
         try:
             state = future.result().current_state.label
-            self.get_logger().info(f'bt_navigator state: {state}')
+            #self.get_logger().info(f'[DEBUG] bt_navigator state: {state}') # Uncomment for debugging lifecycle issues with Nav2
             self.nav2_active = (state == 'active')
         except Exception as e:
             self.get_logger().warn(f'Lifecycle check failed: {e}')
@@ -190,7 +203,6 @@ class GoalManager(Node):
             return
         self.get_logger().info("Nav2 goal accepted")
         self.nav2_goal_ptr = goal_ptr
-        self.nav2_status = decode_nav2_status(0)
         future_result = goal_ptr.get_result_async()
         future_result.add_done_callback(self.process_nav2_result)
     

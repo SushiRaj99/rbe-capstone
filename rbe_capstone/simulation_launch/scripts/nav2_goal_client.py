@@ -161,7 +161,7 @@ class SendGoalToNav2Client(Node):
             return
         # Log success and reset active goal indicator:
         self.get_logger().info(
-            f"Goal finished: GoalManager (success={result.goal_reached}), Nav2 (status={result.nav2_status})"
+            f"Goal finished: GoalManager (goal_reached={result.goal_reached}), Nav2 (status={result.nav2_status})"
         )
         self.goal_active = False
 
