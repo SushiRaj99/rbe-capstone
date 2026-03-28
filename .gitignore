@@ -2,3 +2,5 @@ Report/*
 !Report/*.tex
 !Report/*.pdf
 !Report/*.png
+
+.DS_Store
