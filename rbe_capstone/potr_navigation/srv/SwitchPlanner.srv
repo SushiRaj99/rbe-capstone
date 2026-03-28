@@ -1,0 +1,4 @@
+string planner_name  # "DWB" or "MPPI"
+---
+bool success
+string message
