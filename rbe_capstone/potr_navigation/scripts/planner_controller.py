@@ -38,62 +38,62 @@ class PlannerController(Node):
     def __init__(self):
         super().__init__('planner_controller')
 
-        self._planner = 'MPPI'
-        self._preset  = 1
+        self.planner = 'MPPI'
+        self.preset  = 1
 
         pkg = get_package_share_directory('potr_navigation')
-        self._shared_yaml = os.path.join(pkg, 'config', 'shared_params.yaml')
-        self._dwb_yaml    = os.path.join(pkg, 'config', 'dwb_params.yaml')
-        self._mppi_yaml   = os.path.join(pkg, 'config', 'mppi_params.yaml')
+        self.shared_yaml = os.path.join(pkg, 'config', 'shared_params.yaml')
+        self.dwb_yaml    = os.path.join(pkg, 'config', 'dwb_params.yaml')
+        self.mppi_yaml   = os.path.join(pkg, 'config', 'mppi_params.yaml')
 
-        self._cb = ReentrantCallbackGroup()
+        self.cb = ReentrantCallbackGroup()
 
-        self._set_params_client = self.create_client(
+        self.set_params_client = self.create_client(
             SetParameters, '/controller_server/set_parameters',
-            callback_group=self._cb,
+            callback_group=self.cb,
         )
-        self._smoother_params_client = self.create_client(
+        self.smoother_params_client = self.create_client(
             SetParameters, '/velocity_smoother/set_parameters',
-            callback_group=self._cb,
+            callback_group=self.cb,
         )
         self.create_service(
             SwitchPlanner, '/potr_navigation/switch_planner',
-            self._handle_switch_planner, callback_group=self._cb,
+            self.handle_switch_planner, callback_group=self.cb,
         )
         self.create_service(
             SetParamPreset, '/potr_navigation/set_param_preset',
-            self._handle_set_preset, callback_group=self._cb,
+            self.handle_set_preset, callback_group=self.cb,
         )
 
-        self.get_logger().info(f'Planner controller ready (planner={self._planner}, preset={self._preset})')
+        self.get_logger().info(f'Planner controller ready (planner={self.planner}, preset={self.preset})')
 
-    def _handle_switch_planner(self, req, res):
+    def handle_switch_planner(self, req, res):
         name = req.planner_name.upper().strip()
         if name not in VALID_PLANNERS:
             res.success = False
             res.message = f"Unknown planner '{name}'. Valid: {VALID_PLANNERS}"
             return res
-        self._planner = name
-        res.success, res.message = self._apply_params()
+        self.planner = name
+        res.success, res.message = self.apply_params()
         return res
 
-    def _handle_set_preset(self, req, res):
+    def handle_set_preset(self, req, res):
         if req.preset not in VALID_PRESETS:
             res.success = False
             res.message = f"Invalid preset '{req.preset}'. Valid: {VALID_PRESETS}"
             return res
-        self._preset = req.preset
-        res.success, res.message = self._apply_params()
+        self.preset = req.preset
+        res.success, res.message = self.apply_params()
         return res
 
-    def _apply_params(self):
-        planner = self._planner
-        preset_key = f'preset_{self._preset}'
+    def apply_params(self):
+        planner = self.planner
+        preset_key = f'preset_{self.preset}'
         plugin_ns = PLUGIN_NS[planner]
         params = {}
 
         try:
-            shared = yaml.safe_load(open(self._shared_yaml))[preset_key]
+            shared = yaml.safe_load(open(self.shared_yaml))[preset_key]
             for key, val in shared.items():
                 ros_name = SHARED_PARAM_MAP[planner].get(key)
                 if ros_name:
@@ -102,7 +102,7 @@ class PlannerController(Node):
             return False, f'Failed to load shared params: {e}'
 
         try:
-            planner_yaml = self._dwb_yaml if planner == 'DWB' else self._mppi_yaml
+            planner_yaml = self.dwb_yaml if planner == 'DWB' else self.mppi_yaml
             planner_params = (
                 yaml.safe_load(open(planner_yaml))
                 [preset_key]['controller_server']['ros__parameters'][plugin_ns]
@@ -116,19 +116,19 @@ class PlannerController(Node):
         except Exception as e:
             return False, f'Failed to load {planner} params: {e}'
 
-        ok, msg = self._send_params(params)
+        ok, msg = self.send_params(params)
         if not ok:
             return False, msg
 
         try:
-            shared = yaml.safe_load(open(self._shared_yaml))[preset_key]
+            shared = yaml.safe_load(open(self.shared_yaml))[preset_key]
             max_lin = shared.get('max_linear_vel', 0.5)
             max_ang = shared.get('max_angular_vel', 2.0)
             smoother_params = {
                 'max_velocity': [max_lin, 0.0, max_ang],
                 'min_velocity': [-max_lin, 0.0, -max_ang],
             }
-            ok, msg = self._send_params(smoother_params, client=self._smoother_params_client)
+            ok, msg = self.send_params(smoother_params, client=self.smoother_params_client)
             if not ok:
                 return False, f'Smoother update failed: {msg}'
         except Exception as e:
@@ -136,9 +136,9 @@ class PlannerController(Node):
 
         return True, 'OK'
 
-    def _send_params(self, params: dict, client=None):
+    def send_params(self, params: dict, client=None):
         if client is None:
-            client = self._set_params_client
+            client = self.set_params_client
         if not client.wait_for_service(timeout_sec=5.0):
             return False, f'{client.srv_name} not available'
 
@@ -146,7 +146,7 @@ class PlannerController(Node):
         for name, value in params.items():
             p = Parameter()
             p.name = name
-            p.value = self._make_param_value(value)
+            p.value = self.make_param_value(value)
             ros_params.append(p)
 
         req = SetParameters.Request()
@@ -166,10 +166,10 @@ class PlannerController(Node):
         if failures:
             return False, f'Parameters failed: {failures}'
 
-        self.get_logger().info(f'Applied {len(ros_params)} params ({self._planner}, preset {self._preset})')
+        self.get_logger().info(f'Applied {len(ros_params)} params ({self.planner}, preset {self.preset})')
         return True, 'OK'
 
-    def _make_param_value(self, value) -> ParameterValue:
+    def make_param_value(self, value) -> ParameterValue:
         pv = ParameterValue()
         if isinstance(value, bool):
             pv.type = ParameterType.PARAMETER_BOOL
