@@ -22,7 +22,7 @@ def generate_launch_description():
             ])
         ]),
         launch_arguments={
-            'use_sim_time': 'false',
+            'use_sim_time': 'true',
             'params_file': params_file,
         }.items(),
     )
@@ -35,6 +35,7 @@ def generate_launch_description():
                 executable='planner_controller',
                 name='planner_controller',
                 output='screen',
+                parameters=[{'use_sim_time': True}],
                 respawn=True,
                 respawn_delay=2.0,
             ),

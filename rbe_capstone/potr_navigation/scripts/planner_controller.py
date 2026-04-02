@@ -67,8 +67,6 @@ class PlannerController(Node):
 
         self.get_logger().info(f'Planner controller ready (planner={self._planner}, preset={self._preset})')
 
-    # -------------------------------------------------------------------------
-
     def _handle_switch_planner(self, req, res):
         name = req.planner_name.upper().strip()
         if name not in VALID_PLANNERS:
@@ -87,8 +85,6 @@ class PlannerController(Node):
         self._preset = req.preset
         res.success, res.message = self._apply_params()
         return res
-
-    # -------------------------------------------------------------------------
 
     def _apply_params(self):
         planner = self._planner

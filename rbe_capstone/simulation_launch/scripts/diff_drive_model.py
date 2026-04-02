@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Pose2D
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
@@ -20,6 +20,7 @@ class DiffDriveModel(Node):
             self.cmd_callback,
             10
         )
+        self.create_subscription(Pose2D, '/simulation/set_pose', self.set_pose_cb, 10)
 
         self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -38,6 +39,14 @@ class DiffDriveModel(Node):
     def cmd_callback(self, msg):
         self.v = msg.linear.x
         self.w = msg.angular.z
+
+    def set_pose_cb(self, msg):
+        # Pose2D coordinates are in odom frame
+        self.x = msg.x
+        self.y = msg.y
+        self.theta = msg.theta
+        self.v = 0.0
+        self.w = 0.0
 
     def update(self):
         now = self.get_clock().now()

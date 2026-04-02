@@ -27,6 +27,12 @@ def generate_launch_description():
         description='Map name',
     )
 
+    speed_factor_arg = DeclareLaunchArgument(
+        'speed_factor',
+        default_value='1.0',
+        description='Simulation speed multiplier (e.g. 3.0 = 3x real time)',
+    )
+
     map_yaml = PathJoinSubstitution([
         FindPackageShare('simulation_launch'),
         'maps',
@@ -37,13 +43,15 @@ def generate_launch_description():
     goal_config_path = PathJoinSubstitution([
         FindPackageShare('simulation_launch'),
         'config',
-        'goalpoints.yaml',
+        'goalpoints_episode.yaml',
     ])
     goal_config_arg = DeclareLaunchArgument(
         'goal_config',
         default_value=goal_config_path,
         description='Goal point definition (path to YAML or dictionary of parameters)',
     )
+
+    use_sim_time = {'use_sim_time': True}
 
     # Nav2 stack + planner controller from potr_navigation
     potr_nav2 = IncludeLaunchDescription(
@@ -56,12 +64,23 @@ def generate_launch_description():
         ]),
         launch_arguments={
             'map': map_yaml,
+            'use_sim_time': 'true',
         }.items(),
     )
 
     return LaunchDescription([
         map_name,
+        speed_factor_arg,
         goal_config_arg,
+
+        # Simulation clock (drives use_sim_time for all nodes)
+        Node(
+            package='simulation_launch',
+            executable='sim_clock.py',
+            name='sim_clock',
+            output='screen',
+            parameters=[{'speed_factor': LaunchConfiguration('speed_factor')}],
+        ),
 
         # Robot state publisher
         Node(
@@ -69,7 +88,7 @@ def generate_launch_description():
             executable='robot_state_publisher',
             name='robot_state_publisher',
             output='screen',
-            parameters=[{'robot_description': robot_description}],
+            parameters=[{'robot_description': robot_description}, use_sim_time],
         ),
 
         # Simulated laser scanner
@@ -78,6 +97,7 @@ def generate_launch_description():
             executable='lidar_model.py',
             name='lidar_model',
             output='screen',
+            parameters=[use_sim_time],
         ),
 
         # 'Perfect' localization (static map -> odom TF)
@@ -86,6 +106,7 @@ def generate_launch_description():
             executable='static_transform_publisher',
             name='map_to_odom',
             arguments=['-4', '0', '0', '0', '0', '0', 'map', 'odom'],
+            parameters=[use_sim_time],
         ),
 
         # Differential drive model (odom -> base_link TF + /odom topic)
@@ -94,6 +115,7 @@ def generate_launch_description():
             executable='diff_drive_model.py',
             name='diff_drive_model',
             output='screen',
+            parameters=[use_sim_time],
         ),
 
         # Nav2 stack + planner controller
@@ -105,7 +127,7 @@ def generate_launch_description():
             executable='map_server',
             name='map_server',
             output='screen',
-            parameters=[{'yaml_filename': map_yaml}],
+            parameters=[{'yaml_filename': map_yaml}, use_sim_time],
         ),
         Node(
             package='nav2_lifecycle_manager',
@@ -115,22 +137,25 @@ def generate_launch_description():
             parameters=[{
                 'autostart': True,
                 'node_names': ['map_server'],
-            }],
+            }, use_sim_time],
         ),
 
-        # Goal manager + client
+        # Episode runner (goal manager + metrics lifecycle + run orchestration)
         Node(
-            package='simulation_launch',
-            executable='goal_manager.py',
-            name='goal_manager',
+            package='potr_navigation',
+            executable='episode_runner',
+            name='episode_runner',
             output='screen',
+            parameters=[goal_config_path, use_sim_time],
         ),
+
+        # Metrics tracker
         Node(
-            package='simulation_launch',
-            executable='nav2_goal_client.py',
-            name='nav2_goal_client',
+            package='potr_navigation',
+            executable='metrics_tracker',
+            name='metrics_tracker',
             output='screen',
-            parameters=[goal_config_path],
+            parameters=[use_sim_time],
         ),
 
         # RViz
@@ -140,5 +165,6 @@ def generate_launch_description():
             name='rviz2',
             output='screen',
             arguments=['-d', rviz_config],
+            parameters=[use_sim_time],
         ),
     ])

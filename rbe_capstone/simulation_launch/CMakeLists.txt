@@ -19,6 +19,7 @@ install(PROGRAMS
   scripts/lidar_model.py
   scripts/goal_manager.py
   scripts/nav2_goal_client.py
+  scripts/sim_clock.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

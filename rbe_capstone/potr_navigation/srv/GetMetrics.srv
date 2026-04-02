@@ -1,0 +1,5 @@
+# No request fields — returns metrics accumulated since last reset
+---
+potr_navigation/EpisodeMetrics metrics
+bool success
+string message

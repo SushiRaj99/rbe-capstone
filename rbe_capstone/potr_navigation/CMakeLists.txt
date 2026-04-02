@@ -5,8 +5,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/EpisodeMetrics.msg"
   "srv/SwitchPlanner.srv"
   "srv/SetParamPreset.srv"
+  "srv/GetMetrics.srv"
 )
 
 ament_export_dependencies(rosidl_default_runtime)
@@ -19,6 +21,18 @@ install(PROGRAMS
   scripts/planner_controller.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME planner_controller
+)
+
+install(PROGRAMS
+  scripts/metrics_tracker.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME metrics_tracker
+)
+
+install(PROGRAMS
+  scripts/episode_runner.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME episode_runner
 )
 
 ament_package()

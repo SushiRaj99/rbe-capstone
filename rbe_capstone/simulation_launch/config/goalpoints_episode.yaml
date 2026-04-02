@@ -1,0 +1,18 @@
+# All positions are in map frame.
+# start: where the robot spawns at the beginning of each episode
+# goal:  navigation target for that episode
+# map:   map to load (optional — falls back to default_map param)
+
+episode_runner:
+  ros__parameters:
+    default_map: 'mixed'
+    map_to_odom_x: -4.0    # matches the map->odom static TF in potr_robot.launch.py
+    map_to_odom_y:  0.0
+    episodes: >
+      [
+        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_1", "x":  0.12, "y": -7.13, "yaw":  1.65, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
+        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_2", "x": -4.12, "y": -8.47, "yaw": -3.14, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
+        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_3", "x": -1.35, "y":  8.75, "yaw":  0.03, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
+        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_4", "x":  8.77, "y":  7.84, "yaw": -1.59, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
+        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_5", "x":  9.22, "y": -8.12, "yaw":  1.44, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}}
+      ]
