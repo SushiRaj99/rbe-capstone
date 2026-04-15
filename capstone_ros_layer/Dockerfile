@@ -21,6 +21,8 @@ RUN apt update && apt install -y \
   python3-colcon-ros \
   python3-rosdep \
   python3-vcstool \
+  python3-pip \
+  python3-venv \
   ros-jazzy-ament-cmake \
   ros-jazzy-rmw-cyclonedds-cpp \
   ros-jazzy-turtlebot4-description \
@@ -37,6 +39,10 @@ RUN apt update && apt install -y \
   && apt clean
 RUN curl -fsSL https://code-server.dev/install.sh | sh
 RUN code-server --install-extension Ranch-Hand-Robotics.rde-ros-2
+RUN python3 -m venv /opt/.venv && \
+  /opt/.venv/bin/pip install --no-cache-dir --upgrade pip && \
+  /opt/.venv/bin/pip install --no-cache-dir "stable-baselines3[extra]" && \
+  /opt/.venv/bin/pip install --no-cache-dir gymnasium
 
 # Additional configuration for development
 COPY .vimrc /root/.vimrc
@@ -48,5 +54,6 @@ RUN echo "alias init_ws='[ -f /root/ws/install/setup.bash ] && source /root/ws/i
 RUN echo "colconbuild()\n{\n\tpushd /root/ws >/dev/null && colcon build \"\$@\" && popd > /dev/null\n}" >> /root/.bashrc
 RUN echo "alias colconclean='pushd /root/ws >/dev/null && rm -rf build install log && popd > /dev/null'" >> /root/.bashrc
 RUN echo "code()\n{\n\tcode-server \"\$@\" --auth=none --ignore-last-opened\n}" >> /root/.bashrc
+RUN echo "export PATH=\"/opt/.venv/bin:\${PATH}\"" >> /root/.bashrc
 
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml && colcon mixin update"
