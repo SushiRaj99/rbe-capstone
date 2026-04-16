@@ -2,6 +2,7 @@
 import rclpy
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rclpy.task import Future
+import time     # using this module shouldn't be problematic if all nodes are using MultiThreadedExecutors
 
 # Since Stable-Baselines3's PPO agent applies tanh activation to the output layer, actions 
 # must be normalized/de-normalized when interfacing between the RL pipeline and Nav2 stack. 
@@ -17,6 +18,13 @@ DWB_PARAM_BOUNDS = [
     ("FollowPath.GoalDist.scale",       1.00, 50.00),
     ("FollowPath.PathDist.scale",       1.00, 50.00),
 ]
+
+PLANNER_PARAM_BOUNDS = {"dwb": DWB_PARAM_BOUNDS}    # placeholder to add MPPI later
+
+N_LIDAR_RAYS = 18                                   # 360° / 20° downsample = 18 rays
+N_STATE_VARS = 5                                    # vx, wz, dist_to_goal_x, dist_to_goal_y, bearing_to_goal
+OBSERVATION_DIMS = 2*N_LIDAR_RAYS + N_STATE_VARS    # 40 for now
+NUM_ACTIONS = 6                                     # tunable planner parameters — must match len(PLANNER_PARAM_BOUNDS[planner])
 
 # Helper function to generate an RCL PARAMETER_DOUBLE from a provided name and value:
 def make_rclparam_double(name: str, value: float) -> Parameter:
