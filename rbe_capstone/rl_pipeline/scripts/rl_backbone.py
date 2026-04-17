@@ -9,7 +9,7 @@ from rcl_interfaces.srv import SetParameters
 
 import rl_pipeline.pipeline_utils as putils
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 import threading    # shouldn't be problematic for rclpy since the threading should only occur inside nodes within a MultiThreadedExecutor
 import argparse
 import numpy as np
@@ -71,6 +71,8 @@ class Nav2GymEnv(gym.Env):
         super().__init__()
         self.planner_type = planner_type
         self.previous_dist_to_goal = np.inf     # used for dense reward
+        self.curr_goal_x = np.inf               # used for dense reward
+        self.curr_goal_y = np.inf               # used for dense reward
         # Define environment spaces:
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(putils.OBSERVATION_DIMS,), dtype=np.float32)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=-(putils.NUM_ACTIONS,), dtype=np.float32)
@@ -87,26 +89,102 @@ class Nav2GymEnv(gym.Env):
             f"obs_dim={putils.OBSERVATION_DIMS}, action_dim={putils.NUM_ACTIONS})"
         )
 
-    def reset(self):
-        # TODO - fill this in and make sure it functionally aligns with super().reset()
-        pass
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None) -> Tuple[np.ndarray, dict]:
+        super().reset(seed=seed)
+        # Perform uniform random sample for a (map, pose) pair from the flattened list of episode configs:
+        rng = np.random.default_rng(seed)
+        config = putils.EPISODE_MAP_CONFIGS[int(rng.integers(len(putils.EPISODE_MAP_CONFIGS)))]
+        # Pre-compute initial distance to goal for the dense reward for progress:
+        self.previous_dist_to_goal = np.sqrt(
+            (config['goal_x'] - config['start_x'])**2 + (config['goal_y'] - config['start_y'])**2
+        )
+        self.curr_goal_x = config['goal_x']
+        self.curr_goal_y = config['goal_y']
+        # 'Propagate' reset to ROS2 simulation (map swap + pose reset + new goal) and wait for the first 
+        # observation from the new episode:
+        self.bridge.call_reset(config)
+        raw_observation = self.bridge.wait_for_observation(timeout=10.0)    # allow good chunk of time for map load
+        if raw_observation is None:
+            self.bridge.get_logger().warn("Observation timeout after reset - returning blank observation.")
+            raw_observation = np.zeros((putils.OBSERVATION_DIMS,), dtype=np.float32)
+        return self.normalize_observation(raw_observation), {'map': config.get('map_filepath', '')}
 
-    def step(self):
-        # TODO - fill this in and make sure it functionally aligns with super().step()
-        pass
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, dict]:
+        reward = 0.0
+        terminated, truncated = False, True
+        info = {'status': 'observation_timeout'}
+        # Publish the raw action to /rl/action so the subscribing node can handle the 
+        # denormalization and controller_server update:
+        self.bridge.apply_action(action)
+        # Wait for the next observation, then update reward and check done flags:
+        raw_observation = self.bridge.wait_for_observation(timeout=2.0)
+        if raw_observation is None:
+            self.bridge.get_logger().warn("Observation timeout during step - returning blank observation.")
+            observation = np.zeros((putils.OBSERVATION_DIMS,), dtype=np.float32)
+        else:
+            observation = self.normalize_observation(raw_observation)
+            status = self.bridge.get_status()
+            reward, info = self.compute_reward(raw_observation, status)
+            terminated = status in ['goal_reached', 'collision']
+            truncated = 'timeout' in status     # should cover both the 'observation_timeout' and standard 'timeout' cases
+        return observation, reward, terminated, truncated, info
 
-    def close(self):
-        # TODO - fill this in and make sure it functionally aligns with super().close()
-        pass
+    def close(self) -> None:
+        self.executor.shutdown(wait=False)
+        rclpy.try_shutdown()
 
-    def normalize_observation(self):
-        # TODO - I think the raw observation vector will need to be normalized to [-1, 1] for the policy 
-        # (actor) network
-        pass
+    def normalize_observation(self, raw_obs: np.ndarray) -> np.ndarray:
+        # The raw observation vector will need to be normalized to [-1, 1] for the policy (actor) network:
+        obs = raw_obs.copy()
+        # LIDAR ranges [0, range_max] -> [0, 1]:
+        obs[:(2*putils.N_LIDAR_RAYS)][0::2] = np.clip(obs[:(2*putils.N_LIDAR_RAYS)][0::2] / putils.MAX_LIDAR_RANGE, 0.0, 1.0)
+        # LIDAR bearings [0, 2*pi] -> [0, 1]:
+        obs[:(2*putils.N_LIDAR_RAYS)][1::2] = np.clip(obs[:(2*putils.N_LIDAR_RAYS)][1::2] / (2*np.pi), 0.0, 1.0)
+        # Forward velocity [-MAX_VX, MAX_VX] -> [-1, 1]:
+        obs[(2*putils.N_LIDAR_RAYS) + 1] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 1] / putils.MAX_VX, -1.0, 1.0)
+        # Steering velocity [-MAX_VX, MAX_VX] -> [-1, 1]:
+        obs[(2*putils.N_LIDAR_RAYS) + 2] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 2] / putils.MAX_WX, -1.0, 1.0)
+        # X distance to goal [-MAX_GOAL_DIST, MAX_GOAL_DIST] -> [-1, 1]:
+        obs[(2*putils.N_LIDAR_RAYS) + 3] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 3] / putils.MAX_GOAL_DIST, -1.0, 1.0)
+        # Y distance to goal [-MAX_GOAL_DIST, MAX_GOAL_DIST] -> [-1, 1]:
+        obs[(2*putils.N_LIDAR_RAYS) + 4] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 4] / putils.MAX_GOAL_DIST, -1.0, 1.0)
+        # Bearing to goal [-pi, pi] -> [-1, 1]
+        obs[(2*putils.N_LIDAR_RAYS) + 5] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 5] / np.pi, -1.0, 1.0)
+        return obs.astype(np.float32)
 
-    def compute_reward(self):
-        # TODO - will need a method for the dense reward function
-        pass
+    def compute_reward(self, raw_obs: np.ndarray, status: str) -> Tuple[float, dict]:
+        # Hybrid sparse + dense reward signal:
+        reward = 0.0
+        info   = {'status': status}
+        # Sparse terminal rewards:
+        if status == 'goal_reached':
+            reward += putils.R_GOAL_REACHED
+            info['reward'] = reward
+        elif status == 'collision':
+            reward += putils.R_COLLISION
+            info['reward'] = reward
+        else:
+            # Dense step penalty encourages finding shorter, more direct paths:
+            reward += putils.R_STEP_PENALTY
+            # Dense progress reward is positive when closing distance to goal:
+            curr_x = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 3])
+            curr_y = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 4])
+            curr_dist = float((self.curr_goal_x - curr_x)**2 + (self.curr_goal_y - curr_y)**2)
+            progress = self.previous_dist_to_goal - curr_dist
+            reward += putils.R_PROGRESS_SCALE * progress
+            self.previous_dist_to_goal = curr_dist
+            info['dist_to_goal'] = curr_dist
+            # Dense smoothness penalty discourages unnecessary or jerky rotation:
+            wz  = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 2])
+            reward += putils.R_SMOOTH_PENALTY * abs(wz)
+            # Dense proximity penalty encourages maintaining clearance from walls:
+            min_lidar_range = float(np.min(raw_obs[:(2*putils.N_LIDAR_RAYS)][0::2]))
+            if min_lidar_range < putils.MIN_LIDAR_RANGE:
+                reward += putils.R_PROXIMITY_SCALE * (1.0 - min_lidar_range)
+            info['reward'] = reward
+            info['progress'] = progress
+            info['min_lidar'] = min_lidar
+        return reward, info
 
 def train():
     # TODO - need to define an entrypoint for instantiating the Nav2GymEnv in a training mode

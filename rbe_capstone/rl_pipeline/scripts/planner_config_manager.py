@@ -38,8 +38,7 @@ class PlannerConfigManager(Node):
         self.declare_parameter('collision_threshold', 0.20)     # defines min lidar distance that triggers a 'collision' (TODO - might need to disable collision monitor for this)
         self.declare_parameter('planner_type', 'dwb')           # placeholder for adding MPPI later
         self.declare_parameter('lidar_downsample_n', 10)
-        self.declare_parameter('map_name', '')
-        self.declare_parameter('maps_dir', '')
+        self.declare_parameter('map_filepath', '')
         # Initialize objects for transform processing:
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -146,12 +145,11 @@ class PlannerConfigManager(Node):
         self.curr_goal_yaw = self.get_parameter('goal_yaw').value
         xy_tol = self.get_parameter('xy_tolerance').value
         yaw_tol = self.get_parameter('yaw_tolerance').value
-        map_name = self.get_parameter('map_name').value
-        maps_dir = self.get_parameter('maps_dir').value
-        # Only hot-swap the map if a new one was requested (empty map_name 
+        map_filepath = self.get_parameter('map_filepath').value
+        # Only hot-swap the map if a new one was requested (empty map_filepath 
         # means to keep the same map):
-        if (maps_dir.strip()) and (map_name.strip()):
-            self.load_map(maps_dir, map_name)
+        if (map_filepath.strip()):
+            self.load_map(map_filepath)
         # Reset the diff_drive_model to the new start pose:
         self.reset_diff_drive(start_x, start_y, start_yaw)
         # Clear stale occupancy data from both costmaps:
@@ -163,34 +161,33 @@ class PlannerConfigManager(Node):
         # Issue new Nav2 goal via goal_manager (non-blocking):
         self.send_nav2_goal(self.curr_goal_x, self.curr_goal_y, self.curr_goal_yaw, xy_tol, yaw_tol)
         self.get_logger().info(
-            f"Episode started: map={map_name or '(unchanged)'} " +
+            f"Episode started: map={map_filepath or '(unchanged)'} " +
             f"start=({start_x:.2f}, {start_y:.2f}, {start_yaw:.2f}) " +
             f"goal=({self.curr_goal_x:.2f}, {self.curr_goal_y:.2f}, {self.curr_goal_yaw:.2f})"
         )
         return response
 
-    def load_map(self, map_dir: str, map_name: str) -> None:
-        map_path = os.path.join(maps_dir, map_name.replace(".yaml", "") + ".yaml")
-        if not os.path.isfile(map_path):
-            self.get_logger().warn(f"Map file not found: {map_path} - keeping previous map.")
+    def load_map(self, map_filepath: str) -> None:
+        if not os.path.isfile(map_filepath):
+            self.get_logger().warn(f"Map file not found: {map_filepath} - keeping previous map.")
             return
         if not self.load_map_client.wait_for_service(timeout_sec=3.0):
             self.get_logger().warn("/map_server/load_map service not available - keeping previous map.")
             return
         request = LoadMap.Request()
-        request.map_url = map_path
+        request.map_url = map_filepath
         future = self.load_map_client.call_async(request)
         putils.spin_wait_for_future(future, timeout=5.0)
         if not future.done() or future.result() is None:
-            self.get_logger().warn(f"load_map() timed out for '{map_name}' - keeping previous map.")
+            self.get_logger().warn(f"load_map() timed out for '{map_filepath}' - keeping previous map.")
             return
         if future.result().result != 0: 
             self.get_logger().warn(
                 f"load_map() returned error code {future.result().result} " +
-                f"for '{map_name}' - keeping previous map."
+                f"for '{map_filepath}' - keeping previous map."
             )
         else:
-            self.get_logger().info(f"Map loaded: {map_path}")
+            self.get_logger().info(f"Map loaded: {map_filepath}")
 
     def reset_diff_drive(self, x: float, y: float, yaw: float) -> None:
         msg = Pose2D()
