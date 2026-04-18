@@ -1,5 +1,6 @@
 # Per-step observation published by metrics_tracker at every odom tick
 
+float64[18] lidar_rays            # 18 evenly-spaced range readings (0°…340°, step 20°), clipped to range_max (m)
 float64 distance_to_goal          # Euclidean distance to current goal (m)
 float64 heading_error_to_goal     # Signed angle error toward goal (rad, -pi to pi)
 float64 linear_velocity           # Current linear speed magnitude (m/s)

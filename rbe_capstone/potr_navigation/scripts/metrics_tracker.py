@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import math
 import time
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -23,6 +24,7 @@ class MetricsTracker(Node):
         self.last_clearance = 0.0
         self.last_path_dev = 0.0
         self.last_collision = False
+        self.last_lidar_rays = [0.0] * 18
         self.reset_accumulators()
 
         self.create_subscription(Odometry,      '/odom',                          self.odom_cb,     10, callback_group=self.cb)
@@ -37,7 +39,6 @@ class MetricsTracker(Node):
         self.step_pub = self.create_publisher(StepMetrics, '/potr_navigation/step_metrics', 10)
 
         self.get_logger().info('Metrics tracker ready')
-
 
     def reset_accumulators(self):
         self.start_time    = time.monotonic()
@@ -54,27 +55,23 @@ class MetricsTracker(Node):
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
 
-        # Robot yaw from quaternion
         q = msg.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
-        # Distance traveled
         if self.last_pos is not None:
             dx = x - self.last_pos[0]
             dy = y - self.last_pos[1]
             self.total_dist += math.sqrt(dx * dx + dy * dy)
         self.last_pos = (x, y)
 
-        # Collision detection — lethal cost in robot footprint cell
         collision = False
         if self.costmap is not None:
-            if get_costmap_cost(x, y, self.costmap) >= 100:
+            if get_costmap_cost(x, y, self.costmap) >= 100:  # 100 = lethal cost
                 self.collision_count += 1
                 collision = True
         self.last_collision = collision
 
-        # Speed (magnitude of linear velocity)
         vx = msg.twist.twist.linear.x
         vy = msg.twist.twist.linear.y
         speed = math.sqrt(vx * vx + vy * vy)
@@ -82,13 +79,11 @@ class MetricsTracker(Node):
             self.spd_n, self.spd_mean, self.spd_M2, speed
         )
 
-        # Angular rate magnitude
         wz = abs(msg.twist.twist.angular.z)
         self.hdg_n, self.hdg_mean, self.hdg_M2 = welford(
             self.hdg_n, self.hdg_mean, self.hdg_M2, wz
         )
 
-        # Path deviation
         path_dev = 0.0
         if len(self.current_plan) >= 2:
             dev = point_to_path_dist(x, y, self.current_plan)
@@ -97,7 +92,6 @@ class MetricsTracker(Node):
                 path_dev = dev
         self.last_path_dev = path_dev
 
-        # Distance and heading error to goal
         dist_to_goal = 0.0
         heading_err = 0.0
         if self.current_goal is not None:
@@ -107,8 +101,8 @@ class MetricsTracker(Node):
             bearing = math.atan2(gy - y, gx - x)
             heading_err = ((bearing - yaw) + math.pi) % (2 * math.pi) - math.pi
 
-        # Publish step observation
         s = StepMetrics()
+        s.lidar_rays            = self.last_lidar_rays
         s.distance_to_goal      = dist_to_goal
         s.heading_error_to_goal = heading_err
         s.linear_velocity       = speed
@@ -127,6 +121,21 @@ class MetricsTracker(Node):
             current = min(valid)
             self.min_clearance = min(self.min_clearance, current)
             self.last_clearance = current
+
+        n = 18
+        scan_angles = (np.arange(len(msg.ranges)) * msg.angle_increment
+                       + msg.angle_min)
+        target_angles = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
+        rays = []
+        for target in target_angles:
+            diffs = np.abs(scan_angles - target)
+            diffs = np.minimum(diffs, 2.0 * math.pi - diffs)
+            idx = int(np.argmin(diffs))
+            r = msg.ranges[idx]
+            if not (msg.range_min <= r <= msg.range_max):
+                r = float(msg.range_max)
+            rays.append(float(r))
+        self.last_lidar_rays = rays
 
     def plan_cb(self, msg):
         self.current_plan = [

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+import os
 import time
 import yaml
-import os
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -18,11 +18,15 @@ PLUGIN_NS = {'DWB': 'FollowPathDWB', 'MPPI': 'FollowPath'}
 
 SHARED_PARAM_MAP = {
     'DWB': {
-        'max_linear_vel':  'FollowPathDWB.max_vel_x',
-        'min_linear_vel':  'FollowPathDWB.min_vel_x',
-        'max_angular_vel': 'FollowPathDWB.max_vel_theta',
-        'linear_accel':    'FollowPathDWB.acc_lim_x',
-        'angular_accel':   'FollowPathDWB.acc_lim_theta',
+        'max_linear_vel':   'FollowPathDWB.max_vel_x',
+        'min_linear_vel':   'FollowPathDWB.min_vel_x',
+        'max_angular_vel':  'FollowPathDWB.max_vel_theta',
+        'linear_accel':     'FollowPathDWB.acc_lim_x',
+        'angular_accel':    'FollowPathDWB.acc_lim_theta',
+        'goal_align_scale': 'FollowPathDWB.GoalAlign.scale',
+        'path_align_scale': 'FollowPathDWB.PathAlign.scale',
+        'goal_dist_scale':  'FollowPathDWB.GoalDist.scale',
+        'path_dist_scale':  'FollowPathDWB.PathDist.scale',
     },
     'MPPI': {
         'max_linear_vel':  'FollowPath.vx_max',
@@ -131,10 +135,8 @@ class PlannerController(Node):
             )
             for k, v in planner_params.items():
                 if k == 'critics':
-                    # setting critics on the fly seems to make things go kerplut
-                    continue
-                else:
-                    params[f'{plugin_ns}.{k}'] = v
+                    continue  # live critics update crashes the controller
+                params[f'{plugin_ns}.{k}'] = v
         except Exception as e:
             return False, f'Failed to load {planner} params: {e}'
 

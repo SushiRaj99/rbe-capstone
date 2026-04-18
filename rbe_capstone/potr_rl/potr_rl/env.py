@@ -16,12 +16,12 @@ from potr_navigation.msg import StepMetrics, EpisodeMetrics
 from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
 from potr_rl.params import (
-    DISCRETE_CONFIGS, CONTINUOUS_PARAMS, PARAM_RANGES,
-    OBS_LOW, OBS_HIGH, REWARD,
+    DISCRETE_CONFIGS, PLANNER_PARAM_RANGES,
+    OBS_LOW, OBS_HIGH, REWARD, N_LIDAR_RAYS, ACTION_EMA_ALPHA,
 )
 
 
-class _BridgeNode(Node):
+class BridgeNode(Node):
     """ROS2 node that runs in a background thread and feeds the gym env."""
 
     def __init__(self, obs_queue):
@@ -73,34 +73,7 @@ class _BridgeNode(Node):
 
 
 class PotrNavEnv(gym.Env):
-    """
-    Gymnasium environment that bridges stable-baselines3 to the POTR Nav2 simulation.
-
-    Each call to step(action) applies new planner parameters then runs for
-    action_frequency odom ticks before returning, accumulating reward over
-    that block.  This gives the agent the ability to adapt parameters as the
-    robot moves while giving MPPI enough time between resets to build a stable
-    trajectory rollout buffer.
-
-    At the default action_frequency=50 and 10 Hz odom, parameters are updated
-    every ~5 sim seconds.  MPPI typically recovers from a reset within 0.1–0.5s,
-    leaving ~4.5s of uninterrupted planning per block.
-
-    Parameters
-    ----------
-    action_mode : 'discrete' | 'continuous'
-        'discrete'   — action is an integer index into DISCRETE_CONFIGS.
-        'continuous' — action is a float32 vector in [-1, 1] mapped to physical
-                       parameter ranges defined in params.py.
-    planner : 'MPPI' | 'DWB'
-        Active planner for continuous mode (ignored in discrete mode).
-    action_frequency : int
-        Odom ticks between parameter updates.  50 (~5s) is a safe minimum for
-        MPPI.  Lower values increase adaptability but risk the robot stalling
-        if MPPI does not recover before the next reset.
-    step_timeout : float
-        Seconds to wait for a single StepMetrics message before truncating.
-    """
+    """Gymnasium env that tunes Nav2 planner parameters via RL over the POTR simulation."""
 
     metadata = {'render_modes': []}
 
@@ -113,132 +86,154 @@ class PotrNavEnv(gym.Env):
         self.action_frequency = action_frequency
         self.step_timeout     = step_timeout
 
+        self.param_ranges = PLANNER_PARAM_RANGES[planner]
+
+        n_act = len(self.param_ranges)
+        act_bounds = np.ones(n_act, dtype=np.float32)
         self.observation_space = spaces.Box(
-            low=OBS_LOW, high=OBS_HIGH, dtype=np.float32,
+            low=np.concatenate([OBS_LOW,  -act_bounds]),
+            high=np.concatenate([OBS_HIGH,  act_bounds]),
+            dtype=np.float32,
         )
 
         if action_mode == 'discrete':
             self.action_space = spaces.Discrete(len(DISCRETE_CONFIGS))
         else:
             self.action_space = spaces.Box(
-                low=-1.0, high=1.0,
-                shape=(len(CONTINUOUS_PARAMS),),
-                dtype=np.float32,
+                low=-1.0, high=1.0, shape=(n_act,), dtype=np.float32,
             )
 
-        self._obs_queue = queue.Queue()
-        self._last_obs  = np.zeros(len(OBS_LOW), dtype=np.float32)
-        self._prev_dist = 0.0
+        self.obs_queue       = queue.Queue()
+        self.last_obs        = np.zeros(self.observation_space.shape, dtype=np.float32)
+        self.prev_dist       = 0.0
+        self.smoothed_action = np.zeros(self.action_space.shape, dtype=np.float32)
+        self.prev_smoothed   = np.zeros(self.action_space.shape, dtype=np.float32)
+        self.ep_switches     = 0
+        self.ep_delta_sum    = 0.0
+        self.total_switches  = 0
 
         rclpy.init()
-        self._node     = _BridgeNode(self._obs_queue)
-        self._executor = MultiThreadedExecutor()
-        self._executor.add_node(self._node)
-        self._spin_thread = threading.Thread(
-            target=self._executor.spin, daemon=True,
+        self.node     = BridgeNode(self.obs_queue)
+        self.executor = MultiThreadedExecutor()
+        self.executor.add_node(self.node)
+        self.spin_thread = threading.Thread(
+            target=self.executor.spin, daemon=True,
         )
-        self._spin_thread.start()
+        self.spin_thread.start()
 
-    # ------------------------------------------------------------------
-    # Gymnasium interface
-    # ------------------------------------------------------------------
-
+    # Gymnasium API functions
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
-        while not self._obs_queue.empty():
+        self.smoothed_action = np.zeros(self.action_space.shape, dtype=np.float32)
+        self.prev_smoothed   = np.zeros(self.action_space.shape, dtype=np.float32)
+        self.ep_switches     = 0
+        self.ep_delta_sum    = 0.0
+
+        while not self.obs_queue.empty():
             try:
-                self._obs_queue.get_nowait()
+                self.obs_queue.get_nowait()
             except queue.Empty:
                 break
 
-        res = self._node.call_sync(
-            self._node.start_episode_client, Trigger.Request(),
+        res = self.node.call_sync(
+            self.node.start_episode_client, Trigger.Request(),
         )
         if res is None or not res.success:
             msg = res.message if res else 'timeout'
-            self._node.get_logger().warn(f'start_episode failed: {msg}')
+            self.node.get_logger().warn(f'start_episode failed: {msg}')
 
-        # Wait for first observation — robot is in the settle window, stationary.
-        # The first step() call will apply parameters before the nav goal is sent.
-        obs = self._wait_for_step_obs()
-        self._prev_dist = float(obs[0])
-        self._last_obs  = obs
+        obs = self.wait_for_step_obs()
+        self.prev_dist = float(obs[N_LIDAR_RAYS])   # index 18: distance_to_goal
+        self.last_obs  = obs
         return obs, {}
 
     def step(self, action):
-        # Apply parameters now.  For the first block of each episode this happens
-        # during the settle window (robot stationary, MPPI idle) so the reset is
-        # harmless.  For subsequent blocks the robot is moving; MPPI resets and
-        # recovers within ~0.5s, causing a brief velocity dip but not a stall.
-        self._apply_action(action)
+        self.apply_action(action)
 
         total_reward = 0.0
         ticks = 0
 
         while ticks < self.action_frequency:
             try:
-                tag, data = self._obs_queue.get(timeout=self.step_timeout)
+                tag, data = self.obs_queue.get(timeout=self.step_timeout)
             except queue.Empty:
-                self._node.get_logger().warn('Step timeout — truncating')
-                return self._last_obs, total_reward, False, True, {}
+                self.node.get_logger().warn('Step timeout — truncating')
+                return self.last_obs, total_reward, False, True, {}
 
             if tag == 'done':
                 ep: EpisodeMetrics = data
                 total_reward += (
                     REWARD['goal_bonus'] if ep.goal_reached else REWARD['fail_penalty']
                 )
-                return self._last_obs, total_reward, True, False, {'episode_metrics': ep}
+                info = {
+                    'episode_metrics': ep,
+                    'param_switches':  self.ep_switches,
+                    'mean_delta':      self.ep_delta_sum / max(self.ep_switches, 1),
+                    'total_switches':  self.total_switches,
+                }
+                return self.last_obs, total_reward, True, False, info
 
-            obs = self._step_metrics_to_obs(data)
-            total_reward += self._compute_step_reward(data, obs)
-            self._prev_dist = float(obs[0])
-            self._last_obs  = obs
+            obs = self.step_metrics_to_obs(data)
+            total_reward += self.compute_step_reward(data, obs)
+            self.prev_dist = float(obs[N_LIDAR_RAYS])   # index 18: distance_to_goal
+            self.last_obs  = obs
             ticks += 1
 
-        return self._last_obs, total_reward, False, False, {}
+        info = {
+            'param_switches': self.ep_switches,
+            'mean_delta':     self.ep_delta_sum / max(self.ep_switches, 1),
+            'total_switches': self.total_switches,
+        }
+        return self.last_obs, total_reward, False, False, info
 
     def close(self):
-        self._executor.shutdown()
+        self.executor.shutdown()
         rclpy.shutdown()
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _apply_action(self, action):
+    def apply_action(self, action):
         if self.action_mode == 'discrete':
             planner, preset = DISCRETE_CONFIGS[int(action)]
             req = SwitchPlanner.Request()
             req.planner_name = planner
-            self._node.call_sync(self._node.switch_planner_client, req)
+            self.node.call_sync(self.node.switch_planner_client, req)
             req2 = SetParamPreset.Request()
             req2.preset = preset
-            self._node.call_sync(self._node.set_preset_client, req2)
+            self.node.call_sync(self.node.set_preset_client, req2)
         else:
             action = np.clip(action, -1.0, 1.0)
-            names  = CONTINUOUS_PARAMS
+            # EMA smoothing: damps rapid swings before they hit Nav2/MPPI
+            new_smoothed = (ACTION_EMA_ALPHA * self.smoothed_action
+                            + (1.0 - ACTION_EMA_ALPHA) * action)
+            delta = float(np.sum(np.abs(new_smoothed - self.prev_smoothed)))
+            self.prev_smoothed   = self.smoothed_action.copy()
+            self.smoothed_action = new_smoothed
+            self.ep_switches    += 1
+            self.ep_delta_sum   += delta
+            self.total_switches += 1
+            names  = list(self.param_ranges.keys())
             values = []
             for i, name in enumerate(names):
-                lo, hi = PARAM_RANGES[name]
-                values.append(float(lo + (action[i] + 1.0) / 2.0 * (hi - lo)))
+                lo, hi = self.param_ranges[name]
+                values.append(float(lo + (self.smoothed_action[i] + 1.0) / 2.0 * (hi - lo)))
             req = SetRawParams.Request()
-            req.names  = list(names)
+            req.names  = names
             req.values = values
-            self._node.call_sync(self._node.set_raw_params_client, req)
+            self.node.call_sync(self.node.set_raw_params_client, req)
 
-    def _wait_for_step_obs(self):
+    def wait_for_step_obs(self):
         while True:
             try:
-                tag, data = self._obs_queue.get(timeout=self.step_timeout)
+                tag, data = self.obs_queue.get(timeout=self.step_timeout)
             except queue.Empty:
-                self._node.get_logger().warn('Timed out waiting for first StepMetrics')
-                return self._last_obs.copy()
+                self.node.get_logger().warn('Timed out waiting for first StepMetrics')
+                return self.last_obs.copy()
             if tag == 'step':
-                return self._step_metrics_to_obs(data)
+                return self.step_metrics_to_obs(data)
 
-    def _step_metrics_to_obs(self, msg: StepMetrics) -> np.ndarray:
-        obs = np.array([
+    def step_metrics_to_obs(self, msg: StepMetrics) -> np.ndarray:
+        lidar = np.array(msg.lidar_rays, dtype=np.float32)
+        state = np.array([
             msg.distance_to_goal,
             msg.heading_error_to_goal,
             msg.linear_velocity,
@@ -247,10 +242,11 @@ class PotrNavEnv(gym.Env):
             msg.path_deviation,
             float(msg.collision),
         ], dtype=np.float32)
-        return np.clip(obs, OBS_LOW, OBS_HIGH)
+        base = np.clip(np.concatenate([lidar, state]), OBS_LOW, OBS_HIGH)
+        return np.concatenate([base, self.smoothed_action.astype(np.float32)])
 
-    def _compute_step_reward(self, msg: StepMetrics, obs: np.ndarray) -> float:
-        progress = self._prev_dist - float(obs[0])
+    def compute_step_reward(self, msg: StepMetrics, obs: np.ndarray) -> float:
+        progress = self.prev_dist - float(obs[N_LIDAR_RAYS])  # index 18: distance_to_goal
         r = (
             REWARD['progress']  * progress
             + REWARD['path_dev']  * msg.path_deviation

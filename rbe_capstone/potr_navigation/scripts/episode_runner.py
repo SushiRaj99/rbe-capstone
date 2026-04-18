@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import rclpy
-import time, math, copy, json, os
+import copy
+import json
+import math
+import os
+import time
 from rclpy.node import Node
 from rclpy.action import ActionClient, ActionServer
 from rclpy.action.client import ClientGoalHandle
@@ -21,7 +25,6 @@ from ament_index_python.packages import get_package_share_directory
 
 from typing import Tuple, Optional
 
-# Automated run configs: each run uses a different planner + preset
 RUN_CONFIGS = [
     ('DWB',  1),
     ('DWB',  2),
@@ -62,11 +65,10 @@ class EpisodeRunner(Node):
         self.declare_parameter('episodes', '')
         self.declare_parameter('rl_mode', False)
 
-        # Nav2 action client (direct NavigateToPose for run loop)
+        # Nav2 action client and external goal action server
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.nav_client.wait_for_server()
 
-        # Action server for manual / external goal sending
         self.action_server = ActionServer(
             self, SendGoalToNav2, 'send_goal_to_nav2',
             self.manage_send_goal, callback_group=self.cb_group
@@ -78,27 +80,22 @@ class EpisodeRunner(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Service clients
-        self.nav2_state_client   = self.create_client(GetState,       '/bt_navigator/get_state')
-        self.reset_client        = self.create_client(Trigger,        '/potr_navigation/reset_metrics',  callback_group=self.cb_group)
-        self.metrics_client      = self.create_client(GetMetrics,     '/potr_navigation/get_metrics',    callback_group=self.cb_group)
-        self.switch_planner_client = self.create_client(SwitchPlanner,  '/potr_navigation/switch_planner', callback_group=self.cb_group)
-        self.set_preset_client   = self.create_client(SetParamPreset, '/potr_navigation/set_param_preset', callback_group=self.cb_group)
-        self.load_map_client     = self.create_client(LoadMap,        '/map_server/load_map',            callback_group=self.cb_group)
+        # Clients
+        self.nav2_state_client     = self.create_client(GetState,       '/bt_navigator/get_state')
+        self.reset_client          = self.create_client(Trigger,        '/potr_navigation/reset_metrics',   callback_group=self.cb_group)
+        self.metrics_client        = self.create_client(GetMetrics,     '/potr_navigation/get_metrics',     callback_group=self.cb_group)
+        self.switch_planner_client = self.create_client(SwitchPlanner,  '/potr_navigation/switch_planner',  callback_group=self.cb_group)
+        self.set_preset_client     = self.create_client(SetParamPreset, '/potr_navigation/set_param_preset', callback_group=self.cb_group)
+        self.load_map_client       = self.create_client(LoadMap,        '/map_server/load_map',             callback_group=self.cb_group)
 
-        # Publisher for robot respawn
-        self.set_pose_pub = self.create_publisher(Pose2D, '/simulation/set_pose', 10)
-        # Publisher for episode metrics
-        self.metrics_pub  = self.create_publisher(EpisodeMetrics, '/potr_navigation/episode_metrics', 10)
-        # Publisher for current goal (consumed by metrics_tracker for step observations)
-        self.current_goal_pub = self.create_publisher(Pose, '/potr_navigation/current_goal', 10)
-        # Service for RL env to trigger the next episode
+        # Publishers
+        self.set_pose_pub     = self.create_publisher(Pose2D,          '/simulation/set_pose', 10)
+        self.metrics_pub      = self.create_publisher(EpisodeMetrics,  '/potr_navigation/episode_metrics', 10)
+        self.current_goal_pub = self.create_publisher(Pose,            '/potr_navigation/current_goal', 10)  # read by metrics_tracker
         self.create_service(Trigger, '/potr_navigation/start_episode', self.handle_start_episode, callback_group=self.cb_group)
 
-        # Nav2 active flag (polled by timer)
-        self.nav2_active = False
-
         # Run loop state
+        self.nav2_active      = False
         self.rl_state         = S_INIT
         self.rl_run_index     = 0
         self.rl_episode_index = 0
@@ -149,11 +146,11 @@ class EpisodeRunner(Node):
                 self.rl_switch_called = False
 
         elif self.rl_state == S_WAITING_FOR_RL:
-            pass  # waiting for /potr_navigation/start_episode service call
+            pass
 
         elif self.rl_state == S_SWITCHING_PLANNER:
             if self.rl_switch_called:
-                return  # waiting for planner switch callbacks
+                return
             if (not self.switch_planner_client.service_is_ready() or
                     not self.set_preset_client.service_is_ready()):
                 self.get_logger().info('Waiting for planner controller services...')

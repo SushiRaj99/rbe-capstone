@@ -2,6 +2,10 @@
 # start: where the robot spawns at the beginning of each episode
 # goal:  navigation target for that episode
 # map:   map to load (optional — falls back to default_map param)
+#
+# Points collected via ros2 topic echo /clicked_point in RViz (map: mixed).
+# Episodes mix these points as both starts and goals so the agent sees diverse
+# traversals rather than always launching from the same home position.
 
 episode_runner:
   ros__parameters:
@@ -11,9 +15,16 @@ episode_runner:
     rl_mode: true
     episodes: >
       [
-        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_1", "x":  0.12, "y": -7.13, "yaw":  1.65, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
-        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_2", "x": -4.12, "y": -8.47, "yaw": -3.14, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
-        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_3", "x": -1.35, "y":  8.75, "yaw":  0.03, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
-        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_4", "x":  8.77, "y":  7.84, "yaw": -1.59, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},
-        {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_5", "x":  9.22, "y": -8.12, "yaw":  1.44, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}}
+        {"map": "mixed", "start": {"x": -4.00, "y":  0.00, "yaw": 0.0}, "goal": {"goal_id": "ep_01", "x":  4.27, "y": -8.70, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -4.00, "y":  0.00, "yaw": 0.0}, "goal": {"goal_id": "ep_02", "x": -11.37, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -4.00, "y":  0.00, "yaw": 0.0}, "goal": {"goal_id": "ep_03", "x":  4.14, "y":  6.50, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -8.12, "y": -8.05, "yaw": 0.0}, "goal": {"goal_id": "ep_04", "x":  4.14, "y":  6.50, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -11.37, "y":  8.41, "yaw": 0.0}, "goal": {"goal_id": "ep_05", "x":  3.13, "y": -9.71, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  4.27, "y": -8.70, "yaw": 0.0}, "goal": {"goal_id": "ep_06", "x": -11.37, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -5.62, "y":  8.41, "yaw": 0.0}, "goal": {"goal_id": "ep_07", "x":  2.10, "y": -6.08, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -2.04, "y": -7.39, "yaw": 0.0}, "goal": {"goal_id": "ep_08", "x": -1.92, "y":  7.39, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -1.92, "y":  7.39, "yaw": 0.0}, "goal": {"goal_id": "ep_09", "x": -8.12, "y": -8.05, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  3.13, "y": -9.71, "yaw": 0.0}, "goal": {"goal_id": "ep_10", "x": -5.62, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  2.10, "y": -6.08, "yaw": 0.0}, "goal": {"goal_id": "ep_11", "x": -11.37, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  4.14, "y":  6.50, "yaw": 0.0}, "goal": {"goal_id": "ep_12", "x": -2.04, "y": -7.39, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}}
       ]
