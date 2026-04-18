@@ -8,6 +8,7 @@ episode_runner:
     default_map: 'mixed'
     map_to_odom_x: -4.0    # matches the map->odom static TF in potr_robot.launch.py
     map_to_odom_y:  0.0
+    rl_mode: true
     episodes: >
       [
         {"map": "mixed", "start": {"x": -4.0, "y": 0.0, "yaw": 0.0}, "goal": {"goal_id": "ep_1", "x":  0.12, "y": -7.13, "yaw":  1.65, "xy_tolerance": 0.25, "yaw_tolerance": 0.25}},

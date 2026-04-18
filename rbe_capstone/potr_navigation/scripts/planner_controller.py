@@ -9,7 +9,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from rcl_interfaces.srv import SetParameters
 from ament_index_python.packages import get_package_share_directory
-from potr_navigation.srv import SwitchPlanner, SetParamPreset
+from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
 VALID_PLANNERS = ('DWB', 'MPPI')
 VALID_PRESETS = (1, 2)
@@ -64,6 +64,10 @@ class PlannerController(Node):
             SetParamPreset, '/potr_navigation/set_param_preset',
             self.handle_set_preset, callback_group=self.cb,
         )
+        self.create_service(
+            SetRawParams, '/potr_navigation/set_raw_params',
+            self.handle_set_raw_params, callback_group=self.cb,
+        )
 
         self.get_logger().info(f'Planner controller ready (planner={self.planner}, preset={self.preset})')
 
@@ -84,6 +88,24 @@ class PlannerController(Node):
             return res
         self.preset = req.preset
         res.success, res.message = self.apply_params()
+        return res
+
+    def handle_set_raw_params(self, req, res):
+        if len(req.names) != len(req.values):
+            res.success = False
+            res.message = 'names and values arrays must have equal length'
+            return res
+        params = {}
+        for name, value in zip(req.names, req.values):
+            ros_name = SHARED_PARAM_MAP[self.planner].get(name)
+            if ros_name is None:
+                res.success = False
+                res.message = f"Unknown param '{name}' for planner {self.planner}"
+                return res
+            params[ros_name] = float(value)
+        summary = '  '.join(f'{n}={v:.3f}' for n, v in zip(req.names, req.values))
+        self.get_logger().info(f'set_raw_params ({self.planner}): {summary}')
+        res.success, res.message = self.send_params(params)
         return res
 
     def apply_params(self):

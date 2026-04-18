@@ -10,7 +10,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.srv import LoadMap
-from geometry_msgs.msg import PoseStamped, Pose2D
+from geometry_msgs.msg import PoseStamped, Pose2D, Pose
 from tf2_ros import Buffer, TransformListener
 from std_srvs.srv import Trigger
 from simulation_launch.action import SendGoalToNav2
@@ -37,6 +37,7 @@ S_MAP_SWITCHING     = 'MAP_SWITCHING'
 S_SETTLING          = 'SETTLING'
 S_GOAL_ACTIVE       = 'GOAL_ACTIVE'
 S_GETTING_METRICS   = 'GETTING_METRICS'
+S_WAITING_FOR_RL    = 'WAITING_FOR_RL'
 S_DONE              = 'DONE'
 
 SETTLE_SECS = 2.0   # seconds to wait after respawn before sending goal
@@ -59,6 +60,7 @@ class EpisodeRunner(Node):
         self.declare_parameter('map_to_odom_x', -4.0)   # map->odom static TF x translation
         self.declare_parameter('map_to_odom_y',  0.0)
         self.declare_parameter('episodes', '')
+        self.declare_parameter('rl_mode', False)
 
         # Nav2 action client (direct NavigateToPose for run loop)
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -88,6 +90,10 @@ class EpisodeRunner(Node):
         self.set_pose_pub = self.create_publisher(Pose2D, '/simulation/set_pose', 10)
         # Publisher for episode metrics
         self.metrics_pub  = self.create_publisher(EpisodeMetrics, '/potr_navigation/episode_metrics', 10)
+        # Publisher for current goal (consumed by metrics_tracker for step observations)
+        self.current_goal_pub = self.create_publisher(Pose, '/potr_navigation/current_goal', 10)
+        # Service for RL env to trigger the next episode
+        self.create_service(Trigger, '/potr_navigation/start_episode', self.handle_start_episode, callback_group=self.cb_group)
 
         # Nav2 active flag (polled by timer)
         self.nav2_active = False
@@ -129,11 +135,21 @@ class EpisodeRunner(Node):
                 self.get_logger().error(f'Failed to parse episodes JSON: {e}')
                 self.rl_state = S_DONE
                 return
-            self.get_logger().info(
-                f'Run loop starting: {len(RUN_CONFIGS)} configs x {len(self.rl_episodes)} episodes'
-            )
-            self.rl_state = S_SWITCHING_PLANNER
-            self.rl_switch_called = False
+            rl_mode = self.get_parameter('rl_mode').value
+            if rl_mode:
+                self.get_logger().info(
+                    f'RL mode: {len(self.rl_episodes)} episodes, waiting for start_episode calls'
+                )
+                self.rl_state = S_WAITING_FOR_RL
+            else:
+                self.get_logger().info(
+                    f'Run loop starting: {len(RUN_CONFIGS)} configs x {len(self.rl_episodes)} episodes'
+                )
+                self.rl_state = S_SWITCHING_PLANNER
+                self.rl_switch_called = False
+
+        elif self.rl_state == S_WAITING_FOR_RL:
+            pass  # waiting for /potr_navigation/start_episode service call
 
         elif self.rl_state == S_SWITCHING_PLANNER:
             if self.rl_switch_called:
@@ -255,6 +271,15 @@ class EpisodeRunner(Node):
 
     def send_episode_goal(self, goal: dict) -> None:
         self.get_logger().info(f'Sending goal: {goal["goal_id"]}')
+
+        # Publish goal so metrics_tracker can compute distance/heading error
+        goal_pose = Pose()
+        goal_pose.position.x = goal['x']
+        goal_pose.position.y = goal['y']
+        goal_pose.orientation.z = math.sin(goal['yaw'] / 2.0)
+        goal_pose.orientation.w = math.cos(goal['yaw'] / 2.0)
+        self.current_goal_pub.publish(goal_pose)
+
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = PoseStamped()
         goal_msg.pose.header.frame_id = 'map'
@@ -316,8 +341,29 @@ class EpisodeRunner(Node):
             self.metrics_pub.publish(m)
         except Exception as e:
             self.get_logger().error(f'get_metrics failed: {e}')
-        self.rl_episode_index += 1
+        rl_mode = self.get_parameter('rl_mode').value
+        if rl_mode:
+            # Wrap episode index so training can run indefinitely
+            self.rl_episode_index = (self.rl_episode_index + 1) % len(self.rl_episodes)
+            self.rl_state = S_WAITING_FOR_RL
+        else:
+            self.rl_episode_index += 1
+            self.rl_state = S_START_EPISODE
+
+    def handle_start_episode(self, req, res):
+        if self.rl_state != S_WAITING_FOR_RL:
+            res.success = False
+            res.message = f'Not waiting for RL trigger (state={self.rl_state})'
+            return res
+        if not self.rl_episodes:
+            res.success = False
+            res.message = 'No episodes loaded yet'
+            return res
+        self.get_logger().info(f'RL trigger: starting episode {self.rl_episode_index}')
         self.rl_state = S_START_EPISODE
+        res.success = True
+        res.message = f'Starting episode {self.rl_episode_index}'
+        return res
 
     def check_nav2_active(self) -> None:
         if not self.nav2_state_client.service_is_ready():

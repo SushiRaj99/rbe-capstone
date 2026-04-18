@@ -1,0 +1,9 @@
+# Set planner parameters by logical name, bypassing the YAML preset system.
+# Names must be keys from SHARED_PARAM_MAP in planner_controller.py
+# (max_linear_vel, min_linear_vel, max_angular_vel, linear_accel, angular_accel).
+# Values are mapped to the correct ROS parameter names for the active planner.
+string[] names
+float64[] values
+---
+bool   success
+string message

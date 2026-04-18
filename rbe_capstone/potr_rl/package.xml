@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>potr_rl</name>
+  <version>0.1.0</version>
+  <description>RL training bridge for POTR navigation parameter tuning</description>
+  <maintainer email="sushant.raj2018@gmail.com">Sushant Raj</maintainer>
+  <license>MIT</license>
+
+  <depend>potr_navigation</depend>
+  <depend>rclpy</depend>
+  <depend>std_srvs</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

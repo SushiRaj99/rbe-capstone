@@ -7,9 +7,10 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Pose
 from std_srvs.srv import Trigger
 from potr_navigation.srv import GetMetrics
-from potr_navigation.msg import EpisodeMetrics
+from potr_navigation.msg import EpisodeMetrics, StepMetrics
 
 
 class MetricsTracker(Node):
@@ -18,15 +19,22 @@ class MetricsTracker(Node):
         self.cb = ReentrantCallbackGroup()
         self.current_plan = []
         self.costmap = None
+        self.current_goal = None
+        self.last_clearance = 0.0
+        self.last_path_dev = 0.0
+        self.last_collision = False
         self.reset_accumulators()
 
-        self.create_subscription(Odometry,      '/odom',                   self.odom_cb,     10, callback_group=self.cb)
-        self.create_subscription(LaserScan,     '/scan',                   self.scan_cb,     10, callback_group=self.cb)
-        self.create_subscription(Path,          '/plan',                   self.plan_cb,     10, callback_group=self.cb)
-        self.create_subscription(OccupancyGrid, '/local_costmap/costmap',  self.costmap_cb,   1, callback_group=self.cb)
+        self.create_subscription(Odometry,      '/odom',                          self.odom_cb,     10, callback_group=self.cb)
+        self.create_subscription(LaserScan,     '/scan',                          self.scan_cb,     10, callback_group=self.cb)
+        self.create_subscription(Path,          '/plan',                          self.plan_cb,     10, callback_group=self.cb)
+        self.create_subscription(OccupancyGrid, '/local_costmap/costmap',         self.costmap_cb,   1, callback_group=self.cb)
+        self.create_subscription(Pose,          '/potr_navigation/current_goal',  self.goal_cb,     10, callback_group=self.cb)
 
         self.create_service(Trigger,    '/potr_navigation/reset_metrics', self.handle_reset, callback_group=self.cb)
         self.create_service(GetMetrics, '/potr_navigation/get_metrics',   self.handle_get,   callback_group=self.cb)
+
+        self.step_pub = self.create_publisher(StepMetrics, '/potr_navigation/step_metrics', 10)
 
         self.get_logger().info('Metrics tracker ready')
 
@@ -46,7 +54,12 @@ class MetricsTracker(Node):
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
 
-        # Distance
+        # Robot yaw from quaternion
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+        # Distance traveled
         if self.last_pos is not None:
             dx = x - self.last_pos[0]
             dy = y - self.last_pos[1]
@@ -54,9 +67,12 @@ class MetricsTracker(Node):
         self.last_pos = (x, y)
 
         # Collision detection — lethal cost in robot footprint cell
+        collision = False
         if self.costmap is not None:
             if get_costmap_cost(x, y, self.costmap) >= 100:
                 self.collision_count += 1
+                collision = True
+        self.last_collision = collision
 
         # Speed (magnitude of linear velocity)
         vx = msg.twist.twist.linear.x
@@ -73,15 +89,44 @@ class MetricsTracker(Node):
         )
 
         # Path deviation
+        path_dev = 0.0
         if len(self.current_plan) >= 2:
             dev = point_to_path_dist(x, y, self.current_plan)
             if dev is not None:
                 self.path_devs.append(dev)
+                path_dev = dev
+        self.last_path_dev = path_dev
+
+        # Distance and heading error to goal
+        dist_to_goal = 0.0
+        heading_err = 0.0
+        if self.current_goal is not None:
+            gx = self.current_goal.position.x
+            gy = self.current_goal.position.y
+            dist_to_goal = math.sqrt((gx - x) ** 2 + (gy - y) ** 2)
+            bearing = math.atan2(gy - y, gx - x)
+            heading_err = ((bearing - yaw) + math.pi) % (2 * math.pi) - math.pi
+
+        # Publish step observation
+        s = StepMetrics()
+        s.distance_to_goal      = dist_to_goal
+        s.heading_error_to_goal = heading_err
+        s.linear_velocity       = speed
+        s.angular_velocity      = wz
+        s.clearance             = self.last_clearance
+        s.path_deviation        = path_dev
+        s.collision             = collision
+        self.step_pub.publish(s)
+
+    def goal_cb(self, msg):
+        self.current_goal = msg
 
     def scan_cb(self, msg):
         valid = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
         if valid:
-            self.min_clearance = min(self.min_clearance, min(valid))
+            current = min(valid)
+            self.min_clearance = min(self.min_clearance, current)
+            self.last_clearance = current
 
     def plan_cb(self, msg):
         self.current_plan = [
