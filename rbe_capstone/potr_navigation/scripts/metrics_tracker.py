@@ -10,8 +10,16 @@ from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Pose
 from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformListener
 from potr_navigation.srv import GetMetrics
 from potr_navigation.msg import EpisodeMetrics, StepMetrics
+
+
+def quat_to_yaw(q) -> float:
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
 
 
 class MetricsTracker(Node):
@@ -26,6 +34,9 @@ class MetricsTracker(Node):
         self.last_collision = False
         self.last_lidar_rays = [0.0] * 18
         self.reset_accumulators()
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.create_subscription(Odometry,      '/odom',                          self.odom_cb,     10, callback_group=self.cb)
         self.create_subscription(LaserScan,     '/scan',                          self.scan_cb,     10, callback_group=self.cb)
@@ -47,27 +58,40 @@ class MetricsTracker(Node):
         self.path_devs     = []
         self.last_pos      = None
         self.collision_count = 0
+        # Drop stale plan — path_deviation should only be measured
+        # against a plan published for the current episode's goal.
+        self.current_plan  = []
+        self.last_path_dev = 0.0
 
         self.spd_n, self.spd_mean, self.spd_M2 = 0, 0.0, 0.0
         self.hdg_n, self.hdg_mean, self.hdg_M2 = 0, 0.0, 0.0
 
     def odom_cb(self, msg):
-        x = msg.pose.pose.position.x
-        y = msg.pose.pose.position.y
+        odom_x = msg.pose.pose.position.x
+        odom_y = msg.pose.pose.position.y
 
-        q = msg.pose.pose.orientation
-        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        yaw = quat_to_yaw(msg.pose.pose.orientation)
+
+        # Plan and goal live in the map frame, odom does not — look up
+        # base_link in map so path_deviation / distance_to_goal are consistent.
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            x = t.transform.translation.x
+            y = t.transform.translation.y
+        except Exception:
+            x, y = odom_x, odom_y
 
         if self.last_pos is not None:
-            dx = x - self.last_pos[0]
-            dy = y - self.last_pos[1]
+            dx = odom_x - self.last_pos[0]
+            dy = odom_y - self.last_pos[1]
             self.total_dist += math.sqrt(dx * dx + dy * dy)
-        self.last_pos = (x, y)
+        self.last_pos = (odom_x, odom_y)
 
         collision = False
         if self.costmap is not None:
-            if get_costmap_cost(x, y, self.costmap) >= 100:  # 100 = lethal cost
+            # /local_costmap/costmap is in odom frame — use odom coordinates
+            # for cell lookup regardless of which frame we resolved for the plan.
+            if get_costmap_cost(odom_x, odom_y, self.costmap) >= 100:
                 self.collision_count += 1
                 collision = True
         self.last_collision = collision
@@ -110,6 +134,12 @@ class MetricsTracker(Node):
         s.clearance             = self.last_clearance
         s.path_deviation        = path_dev
         s.collision             = collision
+        if self.current_goal is not None:
+            s.goal_x_map = self.current_goal.position.x
+            s.goal_y_map = self.current_goal.position.y
+        else:
+            s.goal_x_map = 0.0
+            s.goal_y_map = 0.0
         self.step_pub.publish(s)
 
     def goal_cb(self, msg):

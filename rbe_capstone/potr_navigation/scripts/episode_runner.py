@@ -18,6 +18,13 @@ from geometry_msgs.msg import PoseStamped, Pose2D, Pose
 from tf2_ros import Buffer, TransformListener
 from std_srvs.srv import Trigger
 from simulation_launch.action import SendGoalToNav2
+
+
+def quat_to_yaw(q) -> float:
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
 from lifecycle_msgs.srv import GetState
 from potr_navigation.srv import GetMetrics, SwitchPlanner, SetParamPreset
 from potr_navigation.msg import EpisodeMetrics
@@ -59,7 +66,6 @@ class EpisodeRunner(Node):
         super().__init__('episode_runner')
         self.cb_group = ReentrantCallbackGroup()
 
-        self.declare_parameter('default_map', 'mixed')
         self.declare_parameter('map_to_odom_x', -4.0)   # map->odom static TF x translation
         self.declare_parameter('map_to_odom_y',  0.0)
         self.declare_parameter('episodes', '')
@@ -170,7 +176,8 @@ class EpisodeRunner(Node):
                 self.rl_switch_called = False
                 return
             episode = self.rl_episodes[self.rl_episode_index]
-            map_name = episode.get('map', self.get_parameter('default_map').value)
+            map_name = episode["map"]
+            print(f"map_name: {map}")
             if map_name != self.rl_current_map:
                 self.rl_state = S_MAP_SWITCHING
                 self.do_map_switch(map_name)
@@ -320,7 +327,7 @@ class EpisodeRunner(Node):
             planner, preset = RUN_CONFIGS[self.rl_run_index]
             goal     = episode['goal']
             start    = episode['start']
-            map_name = episode.get('map', self.get_parameter('default_map').value)
+            map_name = episode['map']
 
             m.planner      = planner
             m.preset       = preset
@@ -495,11 +502,7 @@ class EpisodeRunner(Node):
             curr_tf = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
             curr_x = curr_tf.transform.translation.x
             curr_y = curr_tf.transform.translation.y
-            curr_q = curr_tf.transform.rotation
-            curr_yaw = math.atan2(
-                2.0 * (curr_q.w * curr_q.z + curr_q.x * curr_q.y),
-                1.0 - 2.0 * (curr_q.y * curr_q.y + curr_q.z * curr_q.z)
-            )
+            curr_yaw = quat_to_yaw(curr_tf.transform.rotation)
             xy_error = math.sqrt((curr_x - self.x_goal)**2 + (curr_y - self.y_goal)**2)
             yaw_error = abs(((curr_yaw - self.yaw_goal) + math.pi) % (2 * math.pi) - math.pi)
         except Exception as e:

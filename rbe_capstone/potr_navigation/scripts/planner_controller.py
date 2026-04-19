@@ -27,6 +27,7 @@ SHARED_PARAM_MAP = {
         'path_align_scale': 'FollowPathDWB.PathAlign.scale',
         'goal_dist_scale':  'FollowPathDWB.GoalDist.scale',
         'path_dist_scale':  'FollowPathDWB.PathDist.scale',
+        'obstacle_scale':   'FollowPathDWB.BaseObstacle.scale',
     },
     'MPPI': {
         'max_linear_vel':  'FollowPath.vx_max',
@@ -119,7 +120,8 @@ class PlannerController(Node):
         params = {}
 
         try:
-            shared = yaml.safe_load(open(self.shared_yaml))[preset_key]
+            with open(self.shared_yaml) as f:
+                shared = yaml.safe_load(f)[preset_key]
             for key, val in shared.items():
                 ros_name = SHARED_PARAM_MAP[planner].get(key)
                 if ros_name:
@@ -129,10 +131,11 @@ class PlannerController(Node):
 
         try:
             planner_yaml = self.dwb_yaml if planner == 'DWB' else self.mppi_yaml
-            planner_params = (
-                yaml.safe_load(open(planner_yaml))
-                [preset_key]['controller_server']['ros__parameters'][plugin_ns]
-            )
+            with open(planner_yaml) as f:
+                planner_params = (
+                    yaml.safe_load(f)
+                    [preset_key]['controller_server']['ros__parameters'][plugin_ns]
+                )
             for k, v in planner_params.items():
                 if k == 'critics':
                     continue  # live critics update crashes the controller
@@ -145,7 +148,6 @@ class PlannerController(Node):
             return False, msg
 
         try:
-            shared = yaml.safe_load(open(self.shared_yaml))[preset_key]
             max_lin = shared.get('max_linear_vel', 0.5)
             max_ang = shared.get('max_angular_vel', 2.0)
             smoother_params = {

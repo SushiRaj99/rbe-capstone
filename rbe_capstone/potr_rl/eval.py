@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 import argparse
+import os
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 from stable_baselines3 import SAC, PPO
 
-from potr_rl.env import PotrNavEnv
-from potr_rl.params import CONTINUOUS_PARAMS, PARAM_RANGES, DISCRETE_CONFIGS
+from potr_rl.env import PotrNavEnv, decode_param
+from potr_rl.params import PLANNER_PARAM_RANGES, PLANNER_BASELINES, DISCRETE_CONFIGS
 
 
-def decode_continuous_action(action):
+def decode_continuous_action(action, param_ranges, baselines):
     parts = []
-    for i, name in enumerate(CONTINUOUS_PARAMS):
-        lo, hi = PARAM_RANGES[name]
-        val = lo + (float(np.clip(action[i], -1.0, 1.0)) + 1.0) / 2.0 * (hi - lo)
+    for i, name in enumerate(param_ranges):
+        val = decode_param(name, action[i], param_ranges, baselines)
         parts.append(f'{name}={val:.3f}')
     return '  '.join(parts)
 
 
-def run_episodes(env, action_fn, label, n_episodes, action_mode):
+def run_episodes(env, action_fn, label, n_episodes, action_mode,
+                 param_ranges=None, baselines=None):
     """Run n_episodes using action_fn(obs) -> action.  Returns list of result dicts."""
     print(f'\n=== {label} ===')
     results = []
@@ -31,7 +36,7 @@ def run_episodes(env, action_fn, label, n_episodes, action_mode):
             planner, preset = DISCRETE_CONFIGS[int(action)]
             print(f'  [{ep + 1}] action={int(action)} ({planner} preset {preset})')
         else:
-            print(f'  [{ep + 1}] {decode_continuous_action(action)}')
+            print(f'  [{ep + 1}] {decode_continuous_action(action, param_ranges, baselines)}')
 
         obs, reward, terminated, truncated, info = env.step(action)
         ep_reward += reward
@@ -70,6 +75,92 @@ def run_episodes(env, action_fn, label, n_episodes, action_mode):
     return results
 
 
+def save_eval_plot(all_results, save_path, planner):
+    series = []
+    if 'baseline' in all_results:
+        series.append(('Baseline', all_results['baseline'], 'slategray'))
+    if 'policy' in all_results:
+        series.append(('Policy', all_results['policy'], 'steelblue'))
+    if not series:
+        return
+
+    n_episodes = len(series[0][1])
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    fig.suptitle(f'{planner} evaluation — {n_episodes} episodes each', fontsize=13)
+    names = [s[0] for s in series]
+    rng = np.random.default_rng(0)
+
+    # 1: Success rate
+    ax = axes[0, 0]
+    rates = [100.0 * sum(r['goal_reached'] for r in s[1]) / len(s[1]) for s in series]
+    bars = ax.bar(names, rates, color=[s[2] for s in series])
+    for bar, rate in zip(bars, rates):
+        ax.text(bar.get_x() + bar.get_width() / 2, rate + 1, f'{rate:.0f}%',
+                ha='center', fontsize=10)
+    ax.set_ylim(0, 105)
+    ax.set_ylabel('Goal reached (%)')
+    ax.set_title('Success rate')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # 2: Reward per episode (green = goal, red = fail)
+    ax = axes[0, 1]
+    for i, (_, results, color) in enumerate(series):
+        rewards = [r['reward'] for r in results]
+        xs = i + rng.uniform(-0.12, 0.12, len(rewards))
+        goal = [r['goal_reached'] for r in results]
+        ax.scatter([x for x, g in zip(xs, goal) if g],
+                   [r for r, g in zip(rewards, goal) if g],
+                   color='seagreen', alpha=0.7, s=40)
+        ax.scatter([x for x, g in zip(xs, goal) if not g],
+                   [r for r, g in zip(rewards, goal) if not g],
+                   color='firebrick', alpha=0.7, s=40)
+        ax.plot([i - 0.3, i + 0.3], [np.mean(rewards)] * 2,
+                color=color, linewidth=2)
+    ax.set_xticks(range(len(series)))
+    ax.set_xticklabels(names)
+    ax.axhline(0, color='gray', linewidth=0.5, linestyle='--')
+    ax.set_ylabel('Episode reward')
+    ax.set_title('Reward per episode  (green=goal, red=fail)')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # 3: Time to goal (successes only)
+    ax = axes[1, 0]
+    for i, (_, results, color) in enumerate(series):
+        times = [r['total_time'] for r in results
+                 if r['goal_reached'] and r['total_time'] is not None]
+        if times:
+            xs = i + rng.uniform(-0.12, 0.12, len(times))
+            ax.scatter(xs, times, color=color, alpha=0.7, s=40)
+            ax.plot([i - 0.3, i + 0.3], [np.mean(times)] * 2,
+                    color=color, linewidth=2)
+    ax.set_xticks(range(len(series)))
+    ax.set_xticklabels(names)
+    ax.set_ylabel('Time to goal (s)')
+    ax.set_title('Time to goal (successes only)')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # 4: Collision count
+    ax = axes[1, 1]
+    for i, (_, results, color) in enumerate(series):
+        cols = [r['collisions'] for r in results if r['collisions'] is not None]
+        if cols:
+            xs = i + rng.uniform(-0.12, 0.12, len(cols))
+            ax.scatter(xs, cols, color=color, alpha=0.7, s=40)
+            ax.plot([i - 0.3, i + 0.3], [np.mean(cols)] * 2,
+                    color=color, linewidth=2)
+    ax.set_xticks(range(len(series)))
+    ax.set_xticklabels(names)
+    ax.set_ylabel('Collision steps')
+    ax.set_title('Collisions per episode')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+    fig.savefig(save_path, dpi=120)
+    plt.close(fig)
+    print(f'Eval plot saved  {save_path}')
+
+
 def print_summary(label, results):
     n = len(results)
     n_reached  = sum(r['goal_reached'] for r in results)
@@ -98,12 +189,16 @@ def main():
                         help='Preset to use for the baseline run (default: 1)')
     parser.add_argument('--no-baseline', action='store_true',
                         help='Skip the baseline run and only evaluate the model')
+    parser.add_argument('--plot', default=None,
+                        help='Path for the eval summary PNG (default: auto-named from model)')
     args = parser.parse_args()
 
     if args.model is None and args.no_baseline:
         parser.error('Nothing to run: provide a model path or remove --no-baseline')
 
     env = PotrNavEnv(action_mode=args.action_mode, planner=args.planner)
+    param_ranges = PLANNER_PARAM_RANGES[args.planner]
+    baselines    = PLANNER_BASELINES[args.planner]
 
     all_results = {}
 
@@ -120,16 +215,24 @@ def main():
             )
             baseline_fn = lambda obs: baseline_action
         else:
-            # Map preset midpoints to normalised [-1,1] action
-            # Preset 1 → use lower half of each param range
-            # Preset 2 → use upper half of each param range
-            scale = -0.5 if args.baseline_preset == 1 else 0.5
-            fixed_action = np.full(len(CONTINUOUS_PARAMS), scale, dtype=np.float32)
+            # Under midpoint decode, derive the action value that maps each
+            # parameter exactly to its preset-1 baseline value.
+            names = list(param_ranges.keys())
+            fixed_action = np.array([
+                2.0 * (baselines[n] - param_ranges[n][0])
+                      / (param_ranges[n][1] - param_ranges[n][0]) - 1.0
+                for n in names
+            ], dtype=np.float32)
+            if args.baseline_preset == 2:
+                # Preset 2 is approximate under this encoding; use upper-half shift.
+                fixed_action = fixed_action + 0.3
             baseline_fn = lambda obs: fixed_action
 
         label = f'Baseline ({args.planner} preset {args.baseline_preset})'
         all_results['baseline'] = run_episodes(
             env, baseline_fn, label, args.episodes, args.action_mode,
+            param_ranges=param_ranges,
+            baselines=baselines,
         )
 
     # ------------------------------------------------------------------
@@ -145,6 +248,8 @@ def main():
         all_results['policy'] = run_episodes(
             env, policy_fn, f'Trained policy ({args.model})',
             args.episodes, args.action_mode,
+            param_ranges=param_ranges,
+            baselines=baselines,
         )
 
     # ------------------------------------------------------------------
@@ -158,6 +263,12 @@ def main():
                       all_results['baseline'])
     if 'policy' in all_results:
         print_summary(f'Trained policy  ({args.model})', all_results['policy'])
+
+    plot_path = args.plot or (
+        f'{args.model}_eval.png' if args.model
+        else f'{args.planner.lower()}_preset{args.baseline_preset}_eval.png'
+    )
+    save_eval_plot(all_results, plot_path, args.planner)
 
     env.close()
 

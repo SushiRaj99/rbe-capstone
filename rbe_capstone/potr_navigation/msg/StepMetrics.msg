@@ -8,3 +8,5 @@ float64 angular_velocity          # Current angular velocity magnitude (rad/s)
 float64 clearance                 # Instantaneous min obstacle distance from /scan (m)
 float64 path_deviation            # Lateral deviation from global /plan (m)
 bool    collision                 # True if lethal costmap cost at robot footprint this tick
+float64 goal_x_map                # Current goal x in map frame (m) — 0 if no active goal
+float64 goal_y_map                # Current goal y in map frame (m)

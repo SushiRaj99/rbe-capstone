@@ -16,9 +16,16 @@ from potr_navigation.msg import StepMetrics, EpisodeMetrics
 from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
 from potr_rl.params import (
-    DISCRETE_CONFIGS, PLANNER_PARAM_RANGES,
+    DISCRETE_CONFIGS, PLANNER_PARAM_RANGES, PLANNER_BASELINES,
     OBS_LOW, OBS_HIGH, REWARD, N_LIDAR_RAYS, ACTION_EMA_ALPHA,
 )
+
+
+def decode_param(name: str, action: float, ranges: dict, baselines: dict) -> float:
+    """Midpoint-centered linear decode: action=-1 → lo, action=+1 → hi."""
+    lo, hi = ranges[name]
+    a = float(np.clip(action, -1.0, 1.0))
+    return lo + (a + 1.0) / 2.0 * (hi - lo)
 
 
 class BridgeNode(Node):
@@ -87,6 +94,7 @@ class PotrNavEnv(gym.Env):
         self.step_timeout     = step_timeout
 
         self.param_ranges = PLANNER_PARAM_RANGES[planner]
+        self.baselines    = PLANNER_BASELINES[planner]
 
         n_act = len(self.param_ranges)
         act_bounds = np.ones(n_act, dtype=np.float32)
@@ -130,6 +138,16 @@ class PotrNavEnv(gym.Env):
         self.ep_switches     = 0
         self.ep_delta_sum    = 0.0
 
+        self.ep_r_progress   = 0.0
+        self.ep_r_pathdev    = 0.0
+        self.ep_r_angvel     = 0.0
+        self.ep_r_collision  = 0.0
+        self.ep_r_time       = 0.0
+        self.ep_r_distance   = 0.0
+        self.ep_collision_steps = 0
+        self.ep_step_count   = 0
+        self.ep_last_distance = 0.0
+
         while not self.obs_queue.empty():
             try:
                 self.obs_queue.get_nowait()
@@ -159,19 +177,22 @@ class PotrNavEnv(gym.Env):
                 tag, data = self.obs_queue.get(timeout=self.step_timeout)
             except queue.Empty:
                 self.node.get_logger().warn('Step timeout — truncating')
-                return self.last_obs, total_reward, False, True, {}
+                return self.last_obs, total_reward, False, True, self.episode_info(
+                    terminal_reward=0.0, termination='truncated', goal_reached=False,
+                )
 
             if tag == 'done':
                 ep: EpisodeMetrics = data
-                total_reward += (
+                terminal = (
                     REWARD['goal_bonus'] if ep.goal_reached else REWARD['fail_penalty']
                 )
-                info = {
-                    'episode_metrics': ep,
-                    'param_switches':  self.ep_switches,
-                    'mean_delta':      self.ep_delta_sum / max(self.ep_switches, 1),
-                    'total_switches':  self.total_switches,
-                }
+                total_reward += terminal
+                info = self.episode_info(
+                    terminal_reward=terminal,
+                    termination=('goal' if ep.goal_reached else 'fail'),
+                    goal_reached=bool(ep.goal_reached),
+                )
+                info['episode_metrics'] = ep
                 return self.last_obs, total_reward, True, False, info
 
             obs = self.step_metrics_to_obs(data)
@@ -186,6 +207,25 @@ class PotrNavEnv(gym.Env):
             'total_switches': self.total_switches,
         }
         return self.last_obs, total_reward, False, False, info
+
+    def episode_info(self, *, terminal_reward: float, termination: str,
+                     goal_reached: bool) -> dict:
+        return {
+            'param_switches':  self.ep_switches,
+            'mean_delta':      self.ep_delta_sum / max(self.ep_switches, 1),
+            'total_switches':  self.total_switches,
+            'r_progress':      self.ep_r_progress,
+            'r_pathdev':       self.ep_r_pathdev,
+            'r_angvel':        self.ep_r_angvel,
+            'r_collision':     self.ep_r_collision,
+            'r_time':          self.ep_r_time,
+            'r_distance':      self.ep_r_distance,
+            'r_terminal':      terminal_reward,
+            'collision_frac':  self.ep_collision_steps / max(self.ep_step_count, 1),
+            'final_distance':  self.ep_last_distance,
+            'termination':     termination,
+            'goal_reached':    goal_reached,
+        }
 
     def close(self):
         self.executor.shutdown()
@@ -212,10 +252,9 @@ class PotrNavEnv(gym.Env):
             self.ep_delta_sum   += delta
             self.total_switches += 1
             names  = list(self.param_ranges.keys())
-            values = []
-            for i, name in enumerate(names):
-                lo, hi = self.param_ranges[name]
-                values.append(float(lo + (self.smoothed_action[i] + 1.0) / 2.0 * (hi - lo)))
+            values = [decode_param(name, self.smoothed_action[i],
+                                   self.param_ranges, self.baselines)
+                      for i, name in enumerate(names)]
             req = SetRawParams.Request()
             req.names  = names
             req.values = values
@@ -242,15 +281,27 @@ class PotrNavEnv(gym.Env):
             msg.path_deviation,
             float(msg.collision),
         ], dtype=np.float32)
-        base = np.clip(np.concatenate([lidar, state]), OBS_LOW, OBS_HIGH)
+        goal = np.array([msg.goal_x_map, msg.goal_y_map], dtype=np.float32)
+        base = np.clip(np.concatenate([lidar, state, goal]), OBS_LOW, OBS_HIGH)
         return np.concatenate([base, self.smoothed_action.astype(np.float32)])
 
     def compute_step_reward(self, msg: StepMetrics, obs: np.ndarray) -> float:
-        progress = self.prev_dist - float(obs[N_LIDAR_RAYS])  # index 18: distance_to_goal
-        r = (
-            REWARD['progress']  * progress
-            + REWARD['path_dev']  * msg.path_deviation
-            + REWARD['ang_vel']   * msg.angular_velocity
-            + REWARD['collision'] * float(msg.collision)
-        )
-        return float(r)
+        progress    = self.prev_dist - float(obs[N_LIDAR_RAYS])  # index 18: distance_to_goal
+        r_progress  = REWARD['progress']  * progress
+        r_pathdev   = REWARD['path_dev']  * msg.path_deviation
+        r_angvel    = REWARD['ang_vel']   * msg.angular_velocity
+        r_collision = REWARD['collision'] * float(msg.collision)
+        r_time      = REWARD['time_step']
+        r_distance  = REWARD['distance']  * msg.linear_velocity
+
+        self.ep_r_progress      += r_progress
+        self.ep_r_pathdev       += r_pathdev
+        self.ep_r_angvel        += r_angvel
+        self.ep_r_collision     += r_collision
+        self.ep_r_time          += r_time
+        self.ep_r_distance      += r_distance
+        self.ep_collision_steps += int(msg.collision)
+        self.ep_step_count      += 1
+        self.ep_last_distance    = float(obs[N_LIDAR_RAYS])
+
+        return float(r_progress + r_pathdev + r_angvel + r_collision + r_time + r_distance)

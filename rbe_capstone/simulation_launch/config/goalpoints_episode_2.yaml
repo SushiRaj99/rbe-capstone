@@ -1,0 +1,30 @@
+# All positions are in map frame.
+# start: where the robot spawns at the beginning of each episode
+# goal:  navigation target for that episode
+# map:   map to load (optional — falls back to default_map param)
+#
+# Points collected via ros2 topic echo /clicked_point in RViz (map: narrow_aisles).
+# Episodes mix these points as both starts and goals so the agent sees diverse
+# traversals rather than always launching from the same home position.
+
+episode_runner:
+  ros__parameters:
+    default_map: 'narrow_aisles'
+    map_to_odom_x: -4.0    # matches the map->odom static TF in potr_robot.launch.py
+    map_to_odom_y:  0.0
+    rl_mode: true
+    episodes: >
+      [
+        {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_01", "x":  6.80, "y":  8.67, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_02", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  0.72, "y": -6.51, "yaw": 0.0}, "goal": {"goal_id": "ep_03", "x":  0.72, "y":  8.07, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  4.96, "y": -7.82, "yaw": 0.0}, "goal": {"goal_id": "ep_04", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  6.80, "y":  8.67, "yaw": 0.0}, "goal": {"goal_id": "ep_05", "x":  4.96, "y": -7.82, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -7.66, "y":  0.75, "yaw": 0.0}, "goal": {"goal_id": "ep_06", "x":  3.84, "y": -3.73, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.45, "y":  8.22, "yaw": 0.0}, "goal": {"goal_id": "ep_07", "x":  0.72, "y": -6.51, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  3.84, "y": -3.73, "yaw": 0.0}, "goal": {"goal_id": "ep_08", "x": -3.45, "y":  8.22, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -5.30, "y":  2.88, "yaw": 0.0}, "goal": {"goal_id": "ep_09", "x":  6.80, "y":  8.67, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -1.40, "y":  3.40, "yaw": 0.0}, "goal": {"goal_id": "ep_10", "x":  4.96, "y": -7.82, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.15, "y":  0.40, "yaw": 0.0}, "goal": {"goal_id": "ep_11", "x":  0.72, "y":  8.07, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  0.72, "y":  8.07, "yaw": 0.0}, "goal": {"goal_id": "ep_12", "x": -7.66, "y":  0.75, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}}
+      ]
