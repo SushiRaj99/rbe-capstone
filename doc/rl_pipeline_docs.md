@@ -14,7 +14,7 @@
 5. [Observation & Action Pipeline](#5-observation--action-pipeline)
 6. [Evaluation Mode Flow](#6-evaluation-mode-flow)
 7. [Launch File Reference](#7-launch-file-reference)
-8. [TODOs](#8-known-issues--todos)
+8. [TODOs](#8-todos)
 
 ---
 
