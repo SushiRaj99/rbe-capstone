@@ -84,7 +84,7 @@ class PlannerConfigManager(Node):
         raw_scan = np.array(msg.ranges, dtype=np.float32)
         raw_scan = np.where(np.isfinite(raw_scan), raw_scan, msg.range_max) # fills in non-finite values of raw_scan with the msg.range_max
         downsampled_scan = np.zeros((int(2*n_samples),), dtype=np.float32)
-        lasers_per_segment = int(360.0 / putils.N_LIDAR_RAYS)
+        lasers_per_segment = int(len(raw_scan) / n_samples)
         for i in range(1, n_samples+1):
             j = 2*(i-1)
             scan_segment = raw_scan[((i-1)*lasers_per_segment):(i*lasers_per_segment)]

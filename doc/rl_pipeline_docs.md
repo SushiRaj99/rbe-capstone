@@ -394,47 +394,7 @@ ros2 launch rl_pipeline eval.launch.py \
 
 ---
 
-## 8. Known Issues & TODOs
-
-### Bug — `args.results` AttributeError in `rl_backbone.py`
-
-`evaluate_model()` and `evaluate_baseline()` are called with `results_path=args.results` in the `__main__` block, but `--results` is never declared in `build_parser()`.  This will raise `AttributeError: Namespace object has no attribute 'results'` the first time eval mode is run.
-
-**Fix** — add one line to `build_parser()`:
-```python
-p.add_argument(
-    '--results', type=str, default=None,
-    help='Path to JSON file for saving evaluation results'
-)
-```
-
-### Bug — `NameError` in `PlannerConfigManager.process_action()`
-
-Line 116 references `normalized_values` before it is assigned (it is assigned on line 123). The error message should reference `normalized_params` instead:
-
-```python
-# Change:
-f"Action dimension mismatch: received {len(normalized_values)}, "
-# To:
-f"Action dimension mismatch: received {len(normalized_params)}, "
-```
-
-### Bug — `pack_eval_results()` uses undefined `path` and `summary` variables
-
-`pack_eval_results()` references `path` and `summary` where `filepath` and `results` were intended:
-
-```python
-# Change:
-if os.path.exists(path):
-    with open(path, 'r') as f: ...
-existing[key] = summary
-with open(path, 'w') as f: ...
-# To:
-if os.path.exists(filepath):
-    with open(filepath, 'r') as f: ...
-existing[key] = results
-with open(filepath, 'w') as f: ...
-```
+## 8. TODOs
 
 ### TODO — Map start/goal coordinates are placeholders
 
@@ -443,11 +403,3 @@ All entries in `MAP_CONFIGS` inside `pipeline_utils.py` use identical placeholde
 ### TODO — MPPI action space is undefined
 
 `PLANNER_PARAM_BOUNDS` only has an entry for `dwb`. The `mppi` key is listed as a placeholder. Exposing MPPI parameters and updating `NUM_ACTIONS` will be required before `--planner mppi` can be used.
-
-### TODO — LiDAR scan segmentation off-by-one in `process_scan()`
-
-The segment slice `raw_scan[(i-1):i]` produces a single-element array for all values of `i`, meaning the min-range feature selection within each sector degenerates to a plain index selection. The correct slice should be:
-```python
-segment_size = len(raw_scan) // n_samples
-raw_scan[(i-1)*segment_size : i*segment_size]
-```
