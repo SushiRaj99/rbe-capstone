@@ -19,7 +19,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_checker import check_env
-import json
+import json, os
 
 class RLBridgeNode(Node):
     def __init__(self):
@@ -287,22 +287,142 @@ def train(
 def evaluate_model(
     model_path: str,
     planner_type: str = 'dwb',
-    num_episodes: int = 10
+    num_episodes: int = 10,
+    seed: int = 28,
+    results_path: str = None
 ) -> None:
-    # TODO - need to define an entrypoint for instantiating the Nav2GymEnv with the PPO agent model loaded from a checkpoint in evaluation (deterministic) mode. 
-    # The rewards per episode should be printed or logged for comparing against the standard planner.
+    # Loads a PPO checkpoint (saved through Stable-Baselines3) and runs it deterministically for num_episodes:
+    print(f"\nEvaluating model loaded from: {model_path}")
     env = Nav2GymEnv(planner_type=planner_type)
     model = PPO.load(model_path, env=env)
-    # TODO - need to fill in the blanks here...
-    pass
+    all_rewards, all_steps, all_outcomes = [], [], []
+    seed_selector = np.random.default_rng(seed)
+    # Loop over all epiosdes:
+    for episode in range(num_episodes):
+        episode_seed = seed_selector.integers(10_000)
+        observation, info = env.reset(seed=episode_seed)    # can't pass 'seed' directly into reset() since it re-initializes its own local RNG each time
+        episode_reward = 0.0
+        episode_steps = 0
+        episode_status = 'unkown'
+        done = False
+        # Inner episode loop until termination or truncation:
+        while not done:
+            action, next_state = model.predict(observation, deterministic=True)
+            observation, reward, terminated, truncated, info = env.step(action)
+            episode_reward += reward
+            episode_steps += 1
+            episode_status = info.get('status', 'unknown')
+            done = terminated or truncated
+        # Track episode results:
+        all_rewards.append(episode_reward)
+        all_steps.append(episode_steps)
+        all_outcomes.append(episode_status)
+        print(f"\tepisode {episode}/{num_episodes} | reward = {episode_reward:.3f} | steps = {episode_steps} | {episode_status}")
+    # Record final results:
+    env.close()
+    ep_summary = summarize_eval_results(
+        label = f"RL Model ({os.path.basename(model_path)})", 
+        rewards = all_rewards,
+        lengths = all_steps, 
+        outcomes = all_outcomes
+    )
+    if results_path is not None:
+        pack_eval_results(results_path, 'rl_model', ep_summary)
 
 def evaluate_baseline(
     planner_type: str = 'dwb',
-    num_episodes: int = 10
+    num_episodes: int = 10,
+    seed: int = 28,
+    results_path: str = None
 ) -> None:
-    # TODO - need to define entrypoint for instantiating the Nav2GymEnv to operate with a standard planner. The rewards per episode should be printed or logged 
-    # for comparing against the "RL augmented" planner. 
-    pass
+    # Evaluates standard Nav2 planner (with its default YAML-configured parameters and no RL involvement) within 
+    # the Nav2GymEnv for num_episodes:
+    print(f"\nEvaluating baseline Nav2 planner")
+    env = Nav2GymEnv(planner_type=planner_type)
+    bridge = env.bridge     # access bridge directly to bypass the action-publish path
+    all_rewards, all_steps, all_outcomes = [], [], []
+    seed_selector = np.random.default_rng(seed)
+    # Loop over all epiosdes:
+    for episode in range(num_episodes):
+        episode_seed = seed_selector.integers(10_000)
+        observation, info = env.reset(seed=episode_seed)    # can't pass 'seed' directly into reset() since it re-initializes its own local RNG each time
+        episode_reward = 0.0
+        episode_steps = 0
+        episode_status = 'unkown'
+        done = False
+        # Inner episode loop until termination or truncation:
+        while not done:
+            raw_observation = bridge.wait_for_observation(timeout=2.0)  # wait for next observation WITHOUT publishing an action
+            if raw_observation is None:
+                bridge.get_logger().warn(f"Baseline episode {episode}: observation timeout during step {episode_steps}.")
+                episode_status = 'observation_timeout'
+                truncated = True
+                terminated = False
+            else:
+                episode_status = bridge.get_status()
+                terminated = episode_status in ['goal_reached', 'collision']
+                truncated = 'timeout' in episode_status
+                step_reward, step_info = env.compute_reward(raw_observation, episode_status)
+                episode_reward += step_reward
+            episode_steps += 1
+            done = terminated or truncated
+        # Track episode results:
+        all_rewards.append(episode_reward)
+        all_steps.append(episode_steps)
+        all_outcomes.append(episode_status)
+        print(f"\tepisode {episode}/{num_episodes} | reward = {episode_reward:.3f} | steps = {episode_steps} | {episode_status}")
+    # Record final results:
+    env.close()
+    ep_summary = summarize_eval_results(
+        label = f"Baseline ({planner_type})", 
+        rewards = all_rewards,
+        lengths = all_steps, 
+        outcomes = all_outcomes
+    )
+    if results_path is not None:
+        pack_eval_results(results_path, 'baseline', ep_summary)
+
+def summarize_eval_results(label: str, rewards: List[float], lengths: List[float], outcomes: List[str]) -> dict:
+    # Helper function to store evaluation performance in dictionary for seamless pretty-printing and storage:
+    n = len(rewards)
+    success_rate = sum(1 for o in outcomes if o == 'goal_reached') / n * 100.0
+    collision_rate = sum(1 for o in outcomes if o == 'collision') / n * 100.0
+    timeout_rate = sum(1 for o in outcomes if 'timeout' in o) / n * 100.0
+    summary = dict(
+        label          = label,
+        n_episodes     = n,
+        mean_reward    = float(np.mean(rewards)),
+        std_reward     = float(np.std(rewards)),
+        mean_length    = float(np.mean(lengths)),
+        success_rate   = success_rate,
+        collision_rate = collision_rate,
+        timeout_rate   = timeout_rate,
+        outcomes       = outcomes,
+        rewards        = rewards,
+    )
+    print(f"\nResults for {label}:\n")
+    print(f"\tEpisodes       : {n}")
+    print(f"\tMean Reward    : {summary['mean_reward']:+.2f}  ±  {summary['std_reward']:.2f}")
+    print(f"\tMean Length    : {summary['mean_length']:.1f} steps")
+    print(f"\tSuccess Rate   : {success_rate:.1f}%")
+    print(f"\tCollision Rate : {collision_rate:.1f}%")
+    print(f"\tTimeout Rate   : {timeout_rate:.1f}%\n")
+    return summary
+
+def pack_eval_results(filepath: str, key: str, results: dict) -> None:
+    # Helper function to pack a dictionary of evaluation results into a .json file (for seamless 'persistence' 
+    # when writing multiple sets of evaluation results to the same file):
+    existing = {}
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    existing[key] = summary
+    with open(path, 'w') as f:
+        json.dump(existing, f, indent=2)
+    print(f"Results saved to {filepath} with (key='{key}')")
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -321,20 +441,36 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--ro-buffer', type=int, default=2048, help='Rollout buffer size for PPO training')
     p.add_argument('--batch-size', type=int, default=64, help='Batch size for PPO training')
     p.add_argument('--epochs', type=int, default=10, help='Number of epochs for PPO training')
+    p.add_argument('--eval-seed', type=int, default=28, help='Seed for RNG during evaluation to align episode configuration between model and baseline comparisons')
     return p
 
 if __name__ == '__main__':
     args = build_parser().parse_args()
     if args.mode == 'train':
         train(
-            # TODO - placeholder
+            planner_type = args.planner,
+            num_steps = args.steps,
+            net_arch = args.net_arch,
+            lr = float(args.lr),
+            rollout_buffer = args.ro_buffer,
+            batch_size     = args.batch_size,
+            n_epochs       = args.epochs,
+            log_dir        = args.log_dir,
+            checkpoint_dir = args.ckpt_dir
         )
     elif args.mode == 'eval':
         if args.model is None:
             build_parser().error("--model is required for --mode eval")
         evaluate_model(
-            # TODO - placeholder
+            model_path = args.model,
+            planner_type = args.planner,
+            num_episodes = args.episodes,
+            seed = args.eval_seed,
+            results_path = args.results,
         )
         evaluate_baseline(
-            # TODO - placeholder
+            planner_type = args.planner,
+            num_episodes = args.episodes,
+            seed = args.eval_seed,
+            results_path = args.results,    # upserts 'baseline' key into same file
         )
