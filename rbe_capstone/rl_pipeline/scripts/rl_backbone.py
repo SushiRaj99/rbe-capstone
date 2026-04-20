@@ -9,13 +9,16 @@ from rcl_interfaces.srv import SetParameters
 
 import rl_pipeline.pipeline_utils as putils
 
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 import threading    # shouldn't be problematic for rclpy since the threading should only occur inside nodes within a MultiThreadedExecutor
 import argparse
 import numpy as np
 import gymnasium as gym
-from gymnasium import spaces    # TODO - might be missing this package and may need to update Dockerfile
+from gymnasium import spaces
 from stable_baselines3 import PPO
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.env_checker import check_env
 
 class RLBridgeNode(Node):
     def __init__(self):
@@ -35,25 +38,59 @@ class RLBridgeNode(Node):
         self.reset_client = self.create_client(Empty, '/rl/reset', callback_group=self.cb_group)
         self.config_param_client = self.create_client(SetParameters, '/planner_config_manager/set_parameters', callback_group=self.cb_group)
 
-    def collect_observation(self):
-        # TODO - callback method for locking/unlocking and storing observation (state) vector
-        pass
+    def collect_observation(self, msg: Float32MultiArray) -> None:
+        with self.obs_lock:
+            self.latest_obs = np.array(msg.data, dtype=np.float32)
+        self.obs_event.set()    # unblocks any calling method using RLBridgeNode.wait_for_observation() (e.g. Nav2GymEnv.step() or Nav2GymEnv.reset())
 
-    def collect_status(self):
-        # TODO - callback method for storing episode status (based on planner_config_manager's interraction with the goal_manager)
-        pass
+    def collect_status(self, msg: String) -> None:
+        self.status = msg.data
 
     def wait_for_observation(self, timeout: float = 2.0) -> Optional[np.ndarray]:
-        # TODO - method to use within the gym environment to block until a fresh observation arrives on /rl/observation topic
-        pass
+        obs = None
+        self.obs_event.clear()  # effectively blocks logic until RLBridgeNode.collect_observation() sets the lock, indicating that a fresh observation was collected
+        if not self.obs_event.wait(timeout=timeout):
+            self.get_logger().warn("Timeout waiting for observation.")
+        with self.obs_lock:
+            obs = self.latest_obs.copy() if self.latest_obs is not None else None
+        return obs
 
     def get_status(self) -> str:
-        # TODO - getter for the gym environment
-        pass
+        return self.status
 
     def call_reset(self, config: Dict) -> bool:
-        # TODO - method for the gym environment to call the /rl/reset service from within its native reset() method
-        pass
+        # Pushes episode configuration to the planner_config_manager and calls its rl/reset service. This method effectively 
+        # allows the gym environment to call the /rl/reset service from within its native reset() method:
+        episode_params = [
+            putils.make_rclparam_string('goal_id', config['goal_id']),
+            putils.make_rclparam_double('start_x', config['start_x']),
+            putils.make_rclparam_double('start_y', config['start_y']),
+            putils.make_rclparam_double('start_yaw', config['start_yaw']),
+            putils.make_rclparam_double('goal_x', config['goal_x']),
+            putils.make_rclparam_double('goal_y', config['goal_y']),
+            putils.make_rclparam_double('goal_yaw', config['goal_yaw']),
+            putils.make_rclparam_double('xy_tolerance', config['xy_tolerance']),
+            putils.make_rclparam_double('yaw_tolerance', config['yaw_tolerance']),
+            putils.make_rclparam_string('map_filepath', config['map_filepath'])
+        ]
+        success = False
+        # First, ensure that the episode configuration is updated:
+        if self.config_param_client.wait_for_service(timeout_sec=3.0):
+            success = True
+            request = SetParameters.Request()
+            request.parameters = episode_params
+            future = self.config_param_client.call_async(request)
+            putils.spin_wait_for_future(future, timeout=3.0)
+        else:
+            self.get_logger().warn(f"planner_config_node/set_parameters not available, so episode configuration for {config['goal_id']} will not be applied.")
+        # Finally, trigger the actual episode reset:
+        if not self.reset_client.wait_for_service(timeout_sec=3.0):
+            success = False
+            self.get_logger().error("/rl/reset service not available.")
+        elif (success):
+            future = self.reset_client.call_async(Empty.Request())
+            putils.spin_wait_for_future(future, timeout=5.0)
+        return success
 
     def apply_action(self, action: np.ndarray) -> None:
         # Publish the raw (normalized) PPO action vector to /rl/action. After the action is published, it's the 
@@ -73,6 +110,7 @@ class Nav2GymEnv(gym.Env):
         self.previous_dist_to_goal = np.inf     # used for dense reward
         self.curr_goal_x = np.inf               # used for dense reward
         self.curr_goal_y = np.inf               # used for dense reward
+        self.episode_cnt = 0
         # Define environment spaces:
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(putils.OBSERVATION_DIMS,), dtype=np.float32)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=-(putils.NUM_ACTIONS,), dtype=np.float32)
@@ -94,6 +132,8 @@ class Nav2GymEnv(gym.Env):
         # Perform uniform random sample for a (map, pose) pair from the flattened list of episode configs:
         rng = np.random.default_rng(seed)
         config = putils.EPISODE_MAP_CONFIGS[int(rng.integers(len(putils.EPISODE_MAP_CONFIGS)))]
+        config['goal_id'] = f"episode_{self.episode_cnt}"   # the EPISODE_MAP_CONFIGS intentionally doesn't have a 'goal_id' parameter
+        self.episode_cnt += 1
         # Pre-compute initial distance to goal for the dense reward for progress:
         self.previous_dist_to_goal = np.sqrt(
             (config['goal_x'] - config['start_x'])**2 + (config['goal_y'] - config['start_y'])**2
@@ -102,8 +142,9 @@ class Nav2GymEnv(gym.Env):
         self.curr_goal_y = config['goal_y']
         # 'Propagate' reset to ROS2 simulation (map swap + pose reset + new goal) and wait for the first 
         # observation from the new episode:
-        self.bridge.call_reset(config)
-        raw_observation = self.bridge.wait_for_observation(timeout=10.0)    # allow good chunk of time for map load
+        raw_observation = None
+        reset_applied = self.bridge.call_reset(config)
+        if (reset_applied): raw_observation = self.bridge.wait_for_observation(timeout=10.0)    # allow good chunk of time for map load
         if raw_observation is None:
             self.bridge.get_logger().warn("Observation timeout after reset - returning blank observation.")
             raw_observation = np.zeros((putils.OBSERVATION_DIMS,), dtype=np.float32)
@@ -180,18 +221,85 @@ class Nav2GymEnv(gym.Env):
             # Dense proximity penalty encourages maintaining clearance from walls:
             min_lidar_range = float(np.min(raw_obs[:(2*putils.N_LIDAR_RAYS)][0::2]))
             if min_lidar_range < putils.MIN_LIDAR_RANGE:
-                reward += putils.R_PROXIMITY_SCALE * (1.0 - min_lidar_range)
+                reward += putils.R_PROXIMITY_SCALE * (putils.MIN_LIDAR_RANGE - min_lidar_range)
             info['reward'] = reward
             info['progress'] = progress
             info['min_lidar'] = min_lidar
         return reward, info
 
-def train():
-    # TODO - need to define an entrypoint for instantiating the Nav2GymEnv in a training mode
+def train(
+    planner_type: str = 'dwb',
+    num_steps: int = 500_000,
+    net_arch: List[int] = [256, 256],
+    lr: float = 3e-4,
+    rollout_buffer: int = 2048,
+    batch_size: int = 64,
+    n_epochs: int = 10,
+    log_dir: str = './rl_logs',
+    checkpoint_dir: str = './rl_checkpoints'
+) -> None:
+    # Train a PPO agent with Stable-Baselines3 and the Monitor wrapper, which logs per-episode reward and length to csv files 
+    # to log_dir (Tensorboard should be able to support csv files).
+    env = Monitor(Nav2GymEnv(planner_type=planner_type), log_dir)
+    check_env(env, warn=True)
+    checkpoint_cb = CheckpointCallback(
+        save_freq = min(10_000, int(0.02*num_steps)),
+        save_path = checkpoint_dir,
+        name_prefix = f"ppo_nav2_{planner_type}",
+        verbose = 1
+    )
+    policy_kwargs = dict(
+        # NOTE - the default activation functions between hidden layers for PPO is torch.nn.Tanh() in an MlpPolicy. If you want to switch 
+        # this to ReLU, add 'activation_fn=torch.nn.ReLU' to the policy_kwargs dictionary.
+        net_arch=dict(pi=net_arch.copy(), vf=net_arch.copy())
+    )
+    model = PPO(
+        policy = "MlpPolicy",
+        env = env,
+        learning_rate = lr,
+        n_steps = rollout_buffer,
+        batch_size = batch_size,
+        n_epochs = n_epochs,
+        gamma = 0.99,
+        gae_lambda = 0.95,
+        clip_range = 0.20,
+        ent_coef = 0.01,
+        vf_coef = 0.50,
+        policy_kwargs = policy_kwargs,
+        verbose = 1,
+        tensorboard_log = log_dir
+    )
+    print(
+        f"Starting PPO training\n"
+        f"\tplanner    : {planner_type}\n"
+        f"\ttotal_steps: {total_steps:,}\n"
+        f"\tlog_dir    : {log_dir}\n"
+        f"\tcheckpoints: {checkpoint_dir}"
+    )
+    model.learn(total_timesteps=num_steps, callback=checkpoint_cb)
+    save_path = f"{checkpoint_dir}/ppo_nav2_{planner_type}_final"
+    model.save(save_path)
+    print(f"Training complete. Model saved to {save_path}.zip")
+    env.close()
+
+def evaluate_model(
+    model_path: str,
+    planner_type: str = 'dwb',
+    num_episodes: int = 10
+) -> None:
+    # TODO - need to define an entrypoint for instantiating the Nav2GymEnv with the PPO agent model loaded from a checkpoint in evaluation (deterministic) mode. 
+    # The rewards per episode should be printed or logged for comparing against the standard planner.
+    env = Nav2GymEnv(planner_type=planner_type)
+    model = PPO.load(model_path, env=env)
+    # TODO - need to fill in the blanks here...
     pass
 
-def evaluate():
-    # TODO - need to define an entrypoint for instantiating the Nav2GymEnv in an evaluation mode with loadable checkpoint
+def evaluate_baseline(
+    planner_type: str = 'dwb',
+    num_episodes: int = 10
+) -> None:
+    # TODO - need to define entrypoint for instantiating the Nav2GymEnv to operate with a standard planner. The rewards per episode should be printed or logged 
+    # for comparing against the "RL augmented" planner. 
     pass
 
 def build_parser() -> argparse.ArgumentParser:
@@ -217,6 +325,9 @@ if __name__ == '__main__':
     elif args.mode == 'eval':
         if args.model is None:
             build_parser().error("--model is required for --mode eval")
-        evaluate(
+        evaluate_model(
+            # TODO - placeholder
+        )
+        evaluate_baseline(
             # TODO - placeholder
         )

@@ -35,9 +35,9 @@ class PlannerConfigManager(Node):
         self.declare_parameter('xy_tolerance', 0.25)
         self.declare_parameter('yaw_tolerance', 0.40)
         self.declare_parameter('max_episode_steps', 500)
-        self.declare_parameter('collision_threshold', 0.20)     # defines min lidar distance that triggers a 'collision' (TODO - might need to disable collision monitor for this)
-        self.declare_parameter('planner_type', 'dwb')           # placeholder for adding MPPI later
-        self.declare_parameter('lidar_downsample_n', 10)
+        self.declare_parameter('collision_threshold', putils.LIDAR_COLLISION_RANGE) # defines min lidar distance that triggers a 'collision' (TODO - might need to disable collision monitor for this)
+        self.declare_parameter('planner_type', 'dwb')                               # placeholder for adding MPPI later
+        self.declare_parameter('lidar_downsample_n', putils.N_LIDAR_RAYS)
         self.declare_parameter('map_filepath', '')
         # Initialize objects for transform processing:
         self.tf_buffer = Buffer()
@@ -47,8 +47,8 @@ class PlannerConfigManager(Node):
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.process_odom, 10, callback_group=self.cb_group)
         self.action_sub = self.create_subscription(Float32MultiArray, '/rl/action', self.process_action, 10, callback_group=self.cb_group)
         # Configure publishers:
-        self.obs_pub      = self.create_publisher(Float32MultiArray, '/rl/observation', 10)
-        self.status_pub   = self.create_publisher(String, '/rl/status', 10)
+        self.obs_pub = self.create_publisher(Float32MultiArray, '/rl/observation', 10)
+        self.status_pub = self.create_publisher(String, '/rl/status', 10)
         self.set_pose_pub = self.create_publisher(Pose2D, '/simulation/set_pose', 10)  # NOTE - this is what diff_drive_model subscribes to for snapping internal pose to episode start pose
         # Provide service for RL pipeline to reset planner configuration at start of new episode:
         self.reset_srv = self.create_service(Empty, '/rl/reset', self.reset_config, callback_group=self.cb_group)
@@ -101,7 +101,7 @@ class PlannerConfigManager(Node):
         self.latest_wz = msg.twist.twist.angular.z  # steering velocity
 
     def process_action(self, msg: Float32MultiArray) -> None:
-        # This method to serve as the "middle-man" between the RL pipelien and the Nav2 stack for 
+        # This method serves as the "middle-man" between the RL pipeline and the Nav2 stack for 
         # denormalizing and setting planner parameters. Especially considering that the SB3 actions (PPO 
         # output layer) are pushed through a tanh() layer to normalize outputs in range [-1, 1]. So the 
         # action input to this method must be mapped from [-1, 1] -> [0, 1] -> [lo, hi] per the associated 
