@@ -34,9 +34,12 @@ controller_server:
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
-    # FollowPath = MPPI (default, matches stock BT XML controller_id)
-    # FollowPathDWB = DWB (used by setting controller_id="FollowPathDWB" in goal)
-    controller_plugins: ["FollowPath", "FollowPathDWB"]
+    # First plugin in this list is what the stock BT's FollowPath action routes
+    # to by default (no controller_id set on goals). Flip the order when
+    # switching which planner you're training:
+    #   DWB  training → ["FollowPathDWB", "FollowPath"]
+    #   MPPI training → ["FollowPath", "FollowPathDWB"]
+    controller_plugins: ["FollowPathDWB", "FollowPath"]
     use_realtime_priority: false
 
     progress_checker:

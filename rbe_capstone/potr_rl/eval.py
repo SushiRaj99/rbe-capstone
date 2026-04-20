@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from stable_baselines3 import SAC, PPO
 
-from potr_rl.env import PotrNavEnv, decode_param
+from potr_rl.env import PotrNavEnv, decode_param, encode_param
 from potr_rl.params import PLANNER_PARAM_RANGES, PLANNER_BASELINES, DISCRETE_CONFIGS
 
 
@@ -215,14 +215,13 @@ def main():
             )
             baseline_fn = lambda obs: baseline_action
         else:
-            # Under midpoint decode, derive the action value that maps each
-            # parameter exactly to its preset-1 baseline value.
+            # Invert the decoder (linear or log per-param) to find the action
+            # value that maps each parameter exactly to its preset-1 baseline.
             names = list(param_ranges.keys())
-            fixed_action = np.array([
-                2.0 * (baselines[n] - param_ranges[n][0])
-                      / (param_ranges[n][1] - param_ranges[n][0]) - 1.0
-                for n in names
-            ], dtype=np.float32)
+            fixed_action = np.array(
+                [encode_param(n, baselines[n], param_ranges) for n in names],
+                dtype=np.float32,
+            )
             if args.baseline_preset == 2:
                 # Preset 2 is approximate under this encoding; use upper-half shift.
                 fixed_action = fixed_action + 0.3

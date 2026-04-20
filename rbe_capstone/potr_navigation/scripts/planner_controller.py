@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import time
 import yaml
@@ -9,6 +10,8 @@ from rclpy.executors import MultiThreadedExecutor
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from rcl_interfaces.srv import SetParameters
 from ament_index_python.packages import get_package_share_directory
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
+from std_msgs.msg import String
 from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
 VALID_PLANNERS = ('DWB', 'MPPI')
@@ -45,6 +48,10 @@ class PlannerController(Node):
 
         self.planner = 'MPPI'
         self.preset  = 1
+        # Tracked so set_raw_params can keep the velocity_smoother in sync
+        # even when only one of the two bounds is being updated.
+        self.current_max_lin = 0.8
+        self.current_max_ang = 1.2
 
         pkg = get_package_share_directory('potr_navigation')
         self.shared_yaml = os.path.join(pkg, 'config', 'shared_params.yaml')
@@ -61,6 +68,20 @@ class PlannerController(Node):
             SetParameters, '/velocity_smoother/set_parameters',
             callback_group=self.cb,
         )
+        # Latch the most recent shared-name values so subscribers that come
+        # up late still see the current state on their first callback.
+        self.latest_shared_values = {}
+        latched_qos = QoSProfile(
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+        )
+        self.params_pub = self.create_publisher(
+            String, '/potr_navigation/current_planner_params', latched_qos,
+        )
+        # Emit one snapshot immediately so late-joining subscribers render the
+        # current planner/preset layout even before the first service call.
+        self.publish_params_snapshot()
         self.create_service(
             SwitchPlanner, '/potr_navigation/switch_planner',
             self.handle_switch_planner, callback_group=self.cb,
@@ -101,6 +122,7 @@ class PlannerController(Node):
             res.message = 'names and values arrays must have equal length'
             return res
         params = {}
+        shared_updates = {}
         for name, value in zip(req.names, req.values):
             ros_name = SHARED_PARAM_MAP[self.planner].get(name)
             if ros_name is None:
@@ -108,9 +130,35 @@ class PlannerController(Node):
                 res.message = f"Unknown param '{name}' for planner {self.planner}"
                 return res
             params[ros_name] = float(value)
+            shared_updates[name] = float(value)
         summary = '  '.join(f'{n}={v:.3f}' for n, v in zip(req.names, req.values))
         self.get_logger().info(f'set_raw_params ({self.planner}): {summary}')
-        res.success, res.message = self.send_params(params)
+        ok, msg = self.send_params(params)
+        if not ok:
+            res.success, res.message = ok, msg
+            return res
+
+        smoother_dirty = False
+        if 'max_linear_vel' in shared_updates:
+            self.current_max_lin = shared_updates['max_linear_vel']
+            smoother_dirty = True
+        if 'max_angular_vel' in shared_updates:
+            self.current_max_ang = shared_updates['max_angular_vel']
+            smoother_dirty = True
+        if smoother_dirty:
+            smoother_params = {
+                'max_velocity': [self.current_max_lin, 0.0, self.current_max_ang],
+                'min_velocity': [-self.current_max_lin, 0.0, -self.current_max_ang],
+            }
+            ok, msg = self.send_params(smoother_params, client=self.smoother_params_client)
+            if not ok:
+                res.success = False
+                res.message = f'Smoother update failed: {msg}'
+                return res
+
+        self.latest_shared_values.update(shared_updates)
+        self.publish_params_snapshot()
+        res.success, res.message = True, 'OK'
         return res
 
     def apply_params(self):
@@ -118,6 +166,8 @@ class PlannerController(Node):
         preset_key = f'preset_{self.preset}'
         plugin_ns = PLUGIN_NS[planner]
         params = {}
+        shared_updates = {}
+        reverse_shared = {v: k for k, v in SHARED_PARAM_MAP[planner].items()}
 
         try:
             with open(self.shared_yaml) as f:
@@ -126,6 +176,7 @@ class PlannerController(Node):
                 ros_name = SHARED_PARAM_MAP[planner].get(key)
                 if ros_name:
                     params[ros_name] = val
+                    shared_updates[key] = val
         except Exception as e:
             return False, f'Failed to load shared params: {e}'
 
@@ -139,7 +190,10 @@ class PlannerController(Node):
             for k, v in planner_params.items():
                 if k == 'critics':
                     continue  # live critics update crashes the controller
-                params[f'{plugin_ns}.{k}'] = v
+                ros_name = f'{plugin_ns}.{k}'
+                params[ros_name] = v
+                if ros_name in reverse_shared:
+                    shared_updates[reverse_shared[ros_name]] = v
         except Exception as e:
             return False, f'Failed to load {planner} params: {e}'
 
@@ -150,6 +204,8 @@ class PlannerController(Node):
         try:
             max_lin = shared.get('max_linear_vel', 0.5)
             max_ang = shared.get('max_angular_vel', 2.0)
+            self.current_max_lin = max_lin
+            self.current_max_ang = max_ang
             smoother_params = {
                 'max_velocity': [max_lin, 0.0, max_ang],
                 'min_velocity': [-max_lin, 0.0, -max_ang],
@@ -160,6 +216,10 @@ class PlannerController(Node):
         except Exception as e:
             return False, f'Failed to update smoother params: {e}'
 
+        # Replace rather than update — a preset application is a full reset of
+        # every shared-name param to its preset value.
+        self.latest_shared_values = shared_updates
+        self.publish_params_snapshot()
         return True, 'OK'
 
     def send_params(self, params: dict, client=None):
@@ -194,6 +254,16 @@ class PlannerController(Node):
 
         self.get_logger().info(f'Applied {len(ros_params)} params ({self.planner}, preset {self.preset})')
         return True, 'OK'
+
+    def publish_params_snapshot(self) -> None:
+        payload = json.dumps({
+            'planner': self.planner,
+            'preset':  self.preset,
+            'values':  self.latest_shared_values,
+        })
+        msg = String()
+        msg.data = payload
+        self.params_pub.publish(msg)
 
     def make_param_value(self, value) -> ParameterValue:
         pv = ParameterValue()

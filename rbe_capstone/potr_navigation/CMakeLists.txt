@@ -37,4 +37,10 @@ install(PROGRAMS
   RENAME episode_runner
 )
 
+install(PROGRAMS
+  scripts/param_dial_viz.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME param_dial_viz
+)
+
 ament_package()

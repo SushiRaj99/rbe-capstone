@@ -1,8 +1,9 @@
 import numpy as np
 
-# Lidar constants — must match metrics_tracker.py
-N_LIDAR_RAYS    = 18    # one ray every 20° around 360°
-MAX_LIDAR_RANGE = 10.0  # metres
+# Path-cost features come from metrics_tracker.compute_path_costs — three
+# arc-length windows along the global plan, each carrying the *max* Nav2
+# costmap value observed in that window. 253 = lethal, 0 = free.
+MAX_COSTMAP_COST = 254.0
 
 # Discrete action space: (planner, preset) indexed by action int
 DISCRETE_CONFIGS = [
@@ -68,31 +69,41 @@ PLANNER_BASELINES = {
 PARAM_RANGES      = MPPI_PARAM_RANGES
 CONTINUOUS_PARAMS = list(MPPI_PARAM_RANGES.keys())
 
-# Observation space  [N_LIDAR_RAYS + 7 scalar fields + 2 goal-pose dims = 27 dims]
-lidar_low  = np.zeros(N_LIDAR_RAYS, dtype=np.float32)
-lidar_high = np.full(N_LIDAR_RAYS, MAX_LIDAR_RANGE, dtype=np.float32)
-state_low  = np.array([0.0,  -np.pi, 0.0, 0.0, 0.0,  0.0, 0.0], dtype=np.float32)
-state_high = np.array([50.0,  np.pi, 2.0, 5.0, 10.0, 5.0, 1.0], dtype=np.float32)
-goal_low   = np.array([-20.0, -20.0], dtype=np.float32)  # goal x/y in map frame
-goal_high  = np.array([ 20.0,  20.0], dtype=np.float32)
+# Observation space (raw, pre-normalization)  [3 path-cost + 5 state = 8 dims]
+# The lidar was dropped — it's robot-centric while the policy's job is
+# path-centric ("is my planned route blocked?"). The three path_cost_* samples
+# answer that directly by sampling the costmap along the upcoming plan.
+path_cost_low  = np.zeros(3, dtype=np.float32)
+path_cost_high = np.full(3, MAX_COSTMAP_COST, dtype=np.float32)
+state_low  = np.array([0.0,  -np.pi, 0.0, 0.0, 0.0], dtype=np.float32)
+state_high = np.array([50.0,  np.pi, 2.0, 5.0, 5.0], dtype=np.float32)
 
-OBS_LOW  = np.concatenate([lidar_low,  state_low,  goal_low])
-OBS_HIGH = np.concatenate([lidar_high, state_high, goal_high])
-# indices 0–17: lidar ranges; 18–24: dist_to_goal, heading_err, lin_vel, ang_vel, clearance, path_dev, collision
-# indices 25–26: goal_x_map, goal_y_map
-# indices 27+: smoothed action (planner-dependent length, appended in env.py)
+OBS_LOW  = np.concatenate([path_cost_low,  state_low])
+OBS_HIGH = np.concatenate([path_cost_high, state_high])
+# indices 0–2: path_cost_near, path_cost_mid, path_cost_far
+# indices 3–7: dist_to_goal, heading_err, lin_vel, ang_vel, path_dev
+# indices 8+:  smoothed action (planner-dependent length, appended in env.py)
+# Note: env.py normalises the base (indices 0–7) to [-1, 1] using OBS_LOW/HIGH
+# before returning; the smoothed-action suffix is already in [-1, 1] by construction.
 
-# Reward weights
+# Reward weights — per-tick terms accumulate ~1200× per episode at action_freq=10.
+# Shaped so that episode *duration* (which the policy can influence via
+# max_vel/accel) dominates the variable part of the signal. Earlier weights made
+# path_dev the dominant term, but path_dev is mostly determined by DWB + global
+# plan and barely moves across policy variations — the signal was all noise.
 REWARD = {
     'progress':     1.0,    # per-metre closer to goal
-    'path_dev':    -0.1,    # per-metre lateral deviation
-    'ang_vel':     -0.05,   # per rad/s (penalise excessive spinning)
-    'collision':   -10.0,   # per step where collision=True
-    'time_step':   -0.02,   # per tick (~20 Hz sim) — nudges toward faster completions
-    'distance':    -0.01,   # per (m/s × tick) — small detour penalty, calibrated vs path_dev
+    'path_dev':    -0.02,   # per-metre lateral deviation per tick (small — guardrail only)
+    'ang_vel':     -0.01,   # per rad/s per tick (small — guardrail only)
+    'collision':   -10.0,   # per tick where collision=True
+    'time_step':   -0.2,    # per tick — dominant per-episode term; rewards faster completions
     'goal_bonus':   100.0,  # terminal: goal reached
     'fail_penalty': -50.0,  # terminal: episode ended without reaching goal
 }
 
-# EMA smoothing on continuous actions — policy sees raw, Nav2 sees smoothed (prevents MPPI reset storms)
-ACTION_EMA_ALPHA = 0.7
+# EMA smoothing on continuous actions — policy sees raw, Nav2 sees smoothed (prevents MPPI reset storms).
+# alpha is the weight on the *previous* smoothed action, so lower = more responsive.
+# 0.3 means 70% of each new policy action reaches DWB immediately; still enough
+# filtering to avoid reset storms, but not so much that the credit-assignment
+# signal is buried under the previous step's action.
+ACTION_EMA_ALPHA = 0.3

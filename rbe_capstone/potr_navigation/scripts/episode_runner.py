@@ -4,6 +4,7 @@ import copy
 import json
 import math
 import os
+import random
 import time
 from rclpy.node import Node
 from rclpy.action import ActionClient, ActionServer
@@ -70,6 +71,13 @@ class EpisodeRunner(Node):
         self.declare_parameter('map_to_odom_y',  0.0)
         self.declare_parameter('episodes', '')
         self.declare_parameter('rl_mode', False)
+        # Start/goal jitter for domain randomization — off by default because
+        # several goalpoints are already close to obstacles and random offsets
+        # spawn the robot / goal inside walls. Flip `randomize_poses` to true
+        # only on maps where the goal list has enough clearance.
+        self.declare_parameter('randomize_poses', False)
+        self.declare_parameter('jitter_xy',  0.2)   # metres, uniform ± per axis
+        self.declare_parameter('jitter_yaw', 0.15)  # radians, uniform ±
 
         # Nav2 action client and external goal action server
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -110,6 +118,7 @@ class EpisodeRunner(Node):
         self.rl_settle_until  = None
         self.rl_nav_status    = None   # set by goal result callback
         self.rl_switch_called = False  # prevents re-entry while waiting for planner switch callback
+        self.rl_active_episode = None  # jittered copy of current episode; reused across respawn/goal
 
         # Action server goal tracking (separate from run loop)
         self.action_nav2_goal_ptr = None
@@ -175,9 +184,10 @@ class EpisodeRunner(Node):
                 self.rl_state = S_SWITCHING_PLANNER
                 self.rl_switch_called = False
                 return
-            episode = self.rl_episodes[self.rl_episode_index]
+            # Jitter once per reset and cache so respawn + goal see the same pose.
+            episode = self.jittered_episode(self.rl_episodes[self.rl_episode_index])
+            self.rl_active_episode = episode
             map_name = episode["map"]
-            print(f"map_name: {map}")
             if map_name != self.rl_current_map:
                 self.rl_state = S_MAP_SWITCHING
                 self.do_map_switch(map_name)
@@ -188,7 +198,7 @@ class EpisodeRunner(Node):
 
         elif self.rl_state == S_SETTLING:
             if self.rl_settle_until is not None and self.get_clock().now() >= self.rl_settle_until:
-                episode = self.rl_episodes[self.rl_episode_index]
+                episode = self.rl_active_episode
                 future = self.reset_client.call_async(Trigger.Request())
                 future.add_done_callback(lambda f: self.on_episode_reset_done(f, episode))
                 self.rl_state = S_GOAL_ACTIVE  # block re-entry until goal done
@@ -247,10 +257,25 @@ class EpisodeRunner(Node):
                 self.rl_current_map = map_name
         except Exception as e:
             self.get_logger().error(f'Map switch error: {e}')
-        episode = self.rl_episodes[self.rl_episode_index]
+        episode = self.rl_active_episode
         self.do_respawn(episode['start'])
         self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(seconds=SETTLE_SECS)
         self.rl_state = S_SETTLING
+
+    def jittered_episode(self, episode: dict) -> dict:
+        if not self.get_parameter('randomize_poses').value:
+            return episode
+        jxy  = float(self.get_parameter('jitter_xy').value)
+        jyaw = float(self.get_parameter('jitter_yaw').value)
+        if jxy <= 0.0 and jyaw <= 0.0:
+            return episode
+        out = copy.deepcopy(episode)
+        for key in ('start', 'goal'):
+            pose = out[key]
+            pose['x']   = pose['x']            + random.uniform(-jxy,  jxy)
+            pose['y']   = pose['y']            + random.uniform(-jxy,  jxy)
+            pose['yaw'] = pose.get('yaw', 0.0) + random.uniform(-jyaw, jyaw)
+        return out
 
     def do_respawn(self, start: dict) -> None:
         # start coordinates are in map frame; convert to odom frame
@@ -318,7 +343,7 @@ class EpisodeRunner(Node):
             self.rl_nav_status = 'ERROR'
 
     def on_episode_metrics_done(self, future) -> None:
-        episode  = self.rl_episodes[self.rl_episode_index]
+        episode  = self.rl_active_episode or self.rl_episodes[self.rl_episode_index]
         nav_stat = self.rl_nav_status
         self.rl_nav_status = None
         try:

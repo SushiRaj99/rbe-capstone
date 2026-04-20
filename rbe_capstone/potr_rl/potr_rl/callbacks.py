@@ -33,7 +33,6 @@ class LivePlotCallback(BaseCallback):
         self._ep_r_angvel:    list = []
         self._ep_r_collision: list = []
         self._ep_r_time:      list = []
-        self._ep_r_distance:  list = []
         self._ep_r_terminal:  list = []
 
         self._ep_goal:        list = []
@@ -67,7 +66,6 @@ class LivePlotCallback(BaseCallback):
                 self._ep_r_angvel.append(float(ep_info['r_angvel']))
                 self._ep_r_collision.append(float(ep_info['r_collision']))
                 self._ep_r_time.append(float(ep_info.get('r_time', 0.0)))
-                self._ep_r_distance.append(float(ep_info.get('r_distance', 0.0)))
                 self._ep_r_terminal.append(float(ep_info['r_terminal']))
                 self._ep_collision_frac.append(float(ep_info['collision_frac']))
                 self._ep_final_distance.append(float(ep_info['final_distance']))
@@ -176,7 +174,6 @@ class LivePlotCallback(BaseCallback):
                 ('ang_vel',   self._ep_r_angvel,    'purple'),
                 ('collision', self._ep_r_collision, 'firebrick'),
                 ('time',      self._ep_r_time,      'gray'),
-                ('distance',  self._ep_r_distance,  'saddlebrown'),
                 ('terminal',  self._ep_r_terminal,  'seagreen'),
             ]
             for name, series, color in components:

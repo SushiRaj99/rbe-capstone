@@ -17,15 +17,38 @@ from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
 from potr_rl.params import (
     DISCRETE_CONFIGS, PLANNER_PARAM_RANGES, PLANNER_BASELINES,
-    OBS_LOW, OBS_HIGH, REWARD, N_LIDAR_RAYS, ACTION_EMA_ALPHA,
+    OBS_LOW, OBS_HIGH, REWARD, ACTION_EMA_ALPHA,
 )
 
 
+# Parameters whose range spans an order of magnitude or more — linear decode
+# would give wildly uneven coverage of the useful regime. Log decode maps
+# action uniformly over log(value), so action=0 lands on the geometric mean
+# of (lo, hi) and each unit of action corresponds to a fixed cost *ratio*.
+LOG_DECODED_PARAMS = {'obstacle_scale'}
+
+
 def decode_param(name: str, action: float, ranges: dict, baselines: dict) -> float:
-    """Midpoint-centered linear decode: action=-1 → lo, action=+1 → hi."""
+    """Decode a normalized action in [-1, 1] to a real param value.
+    action=-1 → lo, action=+1 → hi. Linear by default, log for params listed
+    in LOG_DECODED_PARAMS.
+    """
     lo, hi = ranges[name]
     a = float(np.clip(action, -1.0, 1.0))
+    if name in LOG_DECODED_PARAMS:
+        return lo * (hi / lo) ** ((a + 1.0) / 2.0)
     return lo + (a + 1.0) / 2.0 * (hi - lo)
+
+
+def encode_param(name: str, value: float, ranges: dict) -> float:
+    """Inverse of decode_param — given a real param value, return the action
+    in [-1, 1] that produces it. Used by eval.py to build a baseline action
+    vector that decodes exactly to preset 1's values.
+    """
+    lo, hi = ranges[name]
+    if name in LOG_DECODED_PARAMS:
+        return 2.0 * np.log(value / lo) / np.log(hi / lo) - 1.0
+    return 2.0 * (value - lo) / (hi - lo) - 1.0
 
 
 class BridgeNode(Node):
@@ -98,11 +121,16 @@ class PotrNavEnv(gym.Env):
 
         n_act = len(self.param_ranges)
         act_bounds = np.ones(n_act, dtype=np.float32)
+        # Base obs is normalised to [-1, 1] in step_metrics_to_obs; smoothed
+        # action is already in [-1, 1].
+        base_lo = np.full(OBS_LOW.shape,  -1.0, dtype=np.float32)
+        base_hi = np.full(OBS_HIGH.shape,  1.0, dtype=np.float32)
         self.observation_space = spaces.Box(
-            low=np.concatenate([OBS_LOW,  -act_bounds]),
-            high=np.concatenate([OBS_HIGH,  act_bounds]),
+            low=np.concatenate([base_lo, -act_bounds]),
+            high=np.concatenate([base_hi,  act_bounds]),
             dtype=np.float32,
         )
+        self._obs_span = (OBS_HIGH - OBS_LOW).astype(np.float32)
 
         if action_mode == 'discrete':
             self.action_space = spaces.Discrete(len(DISCRETE_CONFIGS))
@@ -114,6 +142,7 @@ class PotrNavEnv(gym.Env):
         self.obs_queue       = queue.Queue()
         self.last_obs        = np.zeros(self.observation_space.shape, dtype=np.float32)
         self.prev_dist       = 0.0
+        self._last_raw_dist  = 0.0  # set by step_metrics_to_obs; read by reset()
         self.smoothed_action = np.zeros(self.action_space.shape, dtype=np.float32)
         self.prev_smoothed   = np.zeros(self.action_space.shape, dtype=np.float32)
         self.ep_switches     = 0
@@ -129,6 +158,19 @@ class PotrNavEnv(gym.Env):
         )
         self.spin_thread.start()
 
+        # Tell planner_controller which shared-name vocabulary to use. Without
+        # this it defaults to 'MPPI' and every continuous-mode set_raw_params
+        # call with a DWB-only name (e.g. goal_align_scale) silently fails its
+        # name lookup, meaning the policy has zero effect on the controller.
+        if not self.node.switch_planner_client.wait_for_service(timeout_sec=10.0):
+            raise RuntimeError('switch_planner service not available after 10s')
+        req = SwitchPlanner.Request()
+        req.planner_name = self.planner
+        self.call_service(
+            self.node.switch_planner_client, req,
+            label=f'initial switch_planner({self.planner})',
+        )
+
     # Gymnasium API functions
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -143,7 +185,6 @@ class PotrNavEnv(gym.Env):
         self.ep_r_angvel     = 0.0
         self.ep_r_collision  = 0.0
         self.ep_r_time       = 0.0
-        self.ep_r_distance   = 0.0
         self.ep_collision_steps = 0
         self.ep_step_count   = 0
         self.ep_last_distance = 0.0
@@ -162,7 +203,7 @@ class PotrNavEnv(gym.Env):
             self.node.get_logger().warn(f'start_episode failed: {msg}')
 
         obs = self.wait_for_step_obs()
-        self.prev_dist = float(obs[N_LIDAR_RAYS])   # index 18: distance_to_goal
+        self.prev_dist = self._last_raw_dist
         self.last_obs  = obs
         return obs, {}
 
@@ -197,7 +238,7 @@ class PotrNavEnv(gym.Env):
 
             obs = self.step_metrics_to_obs(data)
             total_reward += self.compute_step_reward(data, obs)
-            self.prev_dist = float(obs[N_LIDAR_RAYS])   # index 18: distance_to_goal
+            self.prev_dist = float(data.distance_to_goal)
             self.last_obs  = obs
             ticks += 1
 
@@ -219,7 +260,6 @@ class PotrNavEnv(gym.Env):
             'r_angvel':        self.ep_r_angvel,
             'r_collision':     self.ep_r_collision,
             'r_time':          self.ep_r_time,
-            'r_distance':      self.ep_r_distance,
             'r_terminal':      terminal_reward,
             'collision_frac':  self.ep_collision_steps / max(self.ep_step_count, 1),
             'final_distance':  self.ep_last_distance,
@@ -231,15 +271,33 @@ class PotrNavEnv(gym.Env):
         self.executor.shutdown()
         rclpy.shutdown()
 
+    def call_service(self, client, req, *, label: str):
+        """call_sync wrapper that surfaces service failures as log warnings.
+        Previously we ignored the response, which let silent server-side errors
+        (e.g. wrong-planner name-lookup failures) masquerade as a working pipe.
+        """
+        res = self.node.call_sync(client, req)
+        if res is None:
+            self.node.get_logger().warn(f'{label} timed out')
+        elif not res.success:
+            self.node.get_logger().warn(f'{label} failed: {res.message}')
+        return res
+
     def apply_action(self, action):
         if self.action_mode == 'discrete':
             planner, preset = DISCRETE_CONFIGS[int(action)]
             req = SwitchPlanner.Request()
             req.planner_name = planner
-            self.node.call_sync(self.node.switch_planner_client, req)
+            self.call_service(
+                self.node.switch_planner_client, req,
+                label=f'switch_planner({planner})',
+            )
             req2 = SetParamPreset.Request()
             req2.preset = preset
-            self.node.call_sync(self.node.set_preset_client, req2)
+            self.call_service(
+                self.node.set_preset_client, req2,
+                label=f'set_param_preset({preset})',
+            )
         else:
             action = np.clip(action, -1.0, 1.0)
             # EMA smoothing: damps rapid swings before they hit Nav2/MPPI
@@ -258,7 +316,10 @@ class PotrNavEnv(gym.Env):
             req = SetRawParams.Request()
             req.names  = names
             req.values = values
-            self.node.call_sync(self.node.set_raw_params_client, req)
+            self.call_service(
+                self.node.set_raw_params_client, req,
+                label='set_raw_params',
+            )
 
     def wait_for_step_obs(self):
         while True:
@@ -268,40 +329,44 @@ class PotrNavEnv(gym.Env):
                 self.node.get_logger().warn('Timed out waiting for first StepMetrics')
                 return self.last_obs.copy()
             if tag == 'step':
+                # step_metrics_to_obs sets self._last_raw_dist as a side effect
+                # so reset() can seed prev_dist without re-parsing the msg.
                 return self.step_metrics_to_obs(data)
 
     def step_metrics_to_obs(self, msg: StepMetrics) -> np.ndarray:
-        lidar = np.array(msg.lidar_rays, dtype=np.float32)
+        self._last_raw_dist = float(msg.distance_to_goal)
+        path_costs = np.array([
+            msg.path_cost_near,
+            msg.path_cost_mid,
+            msg.path_cost_far,
+        ], dtype=np.float32)
         state = np.array([
             msg.distance_to_goal,
             msg.heading_error_to_goal,
             msg.linear_velocity,
             msg.angular_velocity,
-            msg.clearance,
             msg.path_deviation,
-            float(msg.collision),
         ], dtype=np.float32)
-        goal = np.array([msg.goal_x_map, msg.goal_y_map], dtype=np.float32)
-        base = np.clip(np.concatenate([lidar, state, goal]), OBS_LOW, OBS_HIGH)
-        return np.concatenate([base, self.smoothed_action.astype(np.float32)])
+        base = np.clip(np.concatenate([path_costs, state]), OBS_LOW, OBS_HIGH)
+        base_norm = 2.0 * (base - OBS_LOW) / self._obs_span - 1.0
+        return np.concatenate([base_norm, self.smoothed_action.astype(np.float32)])
 
     def compute_step_reward(self, msg: StepMetrics, obs: np.ndarray) -> float:
-        progress    = self.prev_dist - float(obs[N_LIDAR_RAYS])  # index 18: distance_to_goal
+        raw_dist    = float(msg.distance_to_goal)
+        progress    = self.prev_dist - raw_dist
         r_progress  = REWARD['progress']  * progress
         r_pathdev   = REWARD['path_dev']  * msg.path_deviation
         r_angvel    = REWARD['ang_vel']   * msg.angular_velocity
         r_collision = REWARD['collision'] * float(msg.collision)
         r_time      = REWARD['time_step']
-        r_distance  = REWARD['distance']  * msg.linear_velocity
 
         self.ep_r_progress      += r_progress
         self.ep_r_pathdev       += r_pathdev
         self.ep_r_angvel        += r_angvel
         self.ep_r_collision     += r_collision
         self.ep_r_time          += r_time
-        self.ep_r_distance      += r_distance
         self.ep_collision_steps += int(msg.collision)
         self.ep_step_count      += 1
-        self.ep_last_distance    = float(obs[N_LIDAR_RAYS])
+        self.ep_last_distance    = raw_dist
 
-        return float(r_progress + r_pathdev + r_angvel + r_collision + r_time + r_distance)
+        return float(r_progress + r_pathdev + r_angvel + r_collision + r_time)
