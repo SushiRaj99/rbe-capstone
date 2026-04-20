@@ -413,14 +413,14 @@ def pack_eval_results(filepath: str, key: str, results: dict) -> None:
     # Helper function to pack a dictionary of evaluation results into a .json file (for seamless 'persistence' 
     # when writing multiple sets of evaluation results to the same file):
     existing = {}
-    if os.path.exists(path):
+    if os.path.exists(filepath):
         try:
-            with open(path, 'r') as f:
+            with open(filepath, 'r') as f:
                 existing = json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
-    existing[key] = summary
-    with open(path, 'w') as f:
+    existing[key] = results
+    with open(filepath, 'w') as f:
         json.dump(existing, f, indent=2)
     print(f"Results saved to {filepath} with (key='{key}')")
 
@@ -442,6 +442,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--batch-size', type=int, default=64, help='Batch size for PPO training')
     p.add_argument('--epochs', type=int, default=10, help='Number of epochs for PPO training')
     p.add_argument('--eval-seed', type=int, default=28, help='Seed for RNG during evaluation to align episode configuration between model and baseline comparisons')
+    p.add_argument('--results', type=str, default=None, help='Optional path to write evaluation results .json (e.g. ./eval_results.json)')
     return p
 
 if __name__ == '__main__':

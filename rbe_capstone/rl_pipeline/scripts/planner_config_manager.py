@@ -84,9 +84,10 @@ class PlannerConfigManager(Node):
         raw_scan = np.array(msg.ranges, dtype=np.float32)
         raw_scan = np.where(np.isfinite(raw_scan), raw_scan, msg.range_max) # fills in non-finite values of raw_scan with the msg.range_max
         downsampled_scan = np.zeros((int(2*n_samples),), dtype=np.float32)
+        lasers_per_segment = int(360.0 / putils.N_LIDAR_RAYS)
         for i in range(1, n_samples+1):
             j = 2*(i-1)
-            scan_segment = raw_scan[(i-1):i]
+            scan_segment = raw_scan[((i-1)*lasers_per_segment):(i*lasers_per_segment)]
             min_idx = np.where(scan_segment == np.min(scan_segment))[0][0]  # will grab the lowest indexed feature if there are multiple min returns
             feature_range = scan_segment[min_idx]
             min_segment_brng = (i-1)*(2*np.pi/n_samples)
@@ -113,7 +114,7 @@ class PlannerConfigManager(Node):
         normalized_params = np.asarray(msg.data, dtype=np.float32)
         if len(normalized_params) != len(param_spec):
             self.get_logger().error(
-                f"Action dimension mismatch: received {len(normalized_values)}, " +
+                f"Action dimension mismatch: received {len(normalized_params)}, " +
                 f"expected {len(param_spec)} for planner '{planner_type}'"
             )
             return
