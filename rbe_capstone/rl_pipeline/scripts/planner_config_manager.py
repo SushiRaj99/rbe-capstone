@@ -60,7 +60,7 @@ class PlannerConfigManager(Node):
         # Configure action client for the Nav2 goal manager:
         self.goal_action_client = ActionClient(self, SendGoalToNav2, 'send_goal_to_nav2', callback_group=self.cb_group)
         # Configure timer for periodically publishing RL pipeline state vector (observation):
-        self.obs_timer = self.create_timer(0.05, self.publish_observation, callback_group=cb_group)
+        self.obs_timer = self.create_timer(0.05, self.publish_observation, callback_group=self.cb_group)
         # Internal episode state:
         self.episode_status: str = "idle"
         self.episode_name: str = ""
@@ -267,7 +267,7 @@ class PlannerConfigManager(Node):
         # terminal so that the RL env sees the same terminal flag on every observation until the next reset:
         if self.episode_status == 'running':
             self.episode_step += 1
-            self.episode_status - self.check_terminal()
+            self.episode_status = self.check_terminal()
         observation = self.build_observation()
         if observation is not None:
             msg = Float32MultiArray()

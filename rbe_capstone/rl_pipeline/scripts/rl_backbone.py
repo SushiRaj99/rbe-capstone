@@ -19,6 +19,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_checker import check_env
+import json
 
 class RLBridgeNode(Node):
     def __init__(self):
@@ -113,7 +114,7 @@ class Nav2GymEnv(gym.Env):
         self.episode_cnt = 0
         # Define environment spaces:
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(putils.OBSERVATION_DIMS,), dtype=np.float32)
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=-(putils.NUM_ACTIONS,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(putils.NUM_ACTIONS,), dtype=np.float32)
         # Configure "bridge" to ROS2:
         if not rclpy.ok():
             rclpy.init()
@@ -181,16 +182,16 @@ class Nav2GymEnv(gym.Env):
         obs[:(2*putils.N_LIDAR_RAYS)][0::2] = np.clip(obs[:(2*putils.N_LIDAR_RAYS)][0::2] / putils.MAX_LIDAR_RANGE, 0.0, 1.0)
         # LIDAR bearings [0, 2*pi] -> [0, 1]:
         obs[:(2*putils.N_LIDAR_RAYS)][1::2] = np.clip(obs[:(2*putils.N_LIDAR_RAYS)][1::2] / (2*np.pi), 0.0, 1.0)
-        # Forward velocity [-MAX_VX, MAX_VX] -> [-1, 1]:
-        obs[(2*putils.N_LIDAR_RAYS) + 1] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 1] / putils.MAX_VX, -1.0, 1.0)
-        # Steering velocity [-MAX_VX, MAX_VX] -> [-1, 1]:
-        obs[(2*putils.N_LIDAR_RAYS) + 2] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 2] / putils.MAX_WX, -1.0, 1.0)
         # X distance to goal [-MAX_GOAL_DIST, MAX_GOAL_DIST] -> [-1, 1]:
-        obs[(2*putils.N_LIDAR_RAYS) + 3] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 3] / putils.MAX_GOAL_DIST, -1.0, 1.0)
+        obs[(2*putils.N_LIDAR_RAYS) + 0] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 3] / putils.MAX_GOAL_DIST, -1.0, 1.0)
         # Y distance to goal [-MAX_GOAL_DIST, MAX_GOAL_DIST] -> [-1, 1]:
-        obs[(2*putils.N_LIDAR_RAYS) + 4] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 4] / putils.MAX_GOAL_DIST, -1.0, 1.0)
+        obs[(2*putils.N_LIDAR_RAYS) + 1] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 4] / putils.MAX_GOAL_DIST, -1.0, 1.0)
         # Bearing to goal [-pi, pi] -> [-1, 1]
-        obs[(2*putils.N_LIDAR_RAYS) + 5] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 5] / np.pi, -1.0, 1.0)
+        obs[(2*putils.N_LIDAR_RAYS) + 2] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 5] / np.pi, -1.0, 1.0)
+        # Forward velocity [-MAX_VX, MAX_VX] -> [-1, 1]:
+        obs[(2*putils.N_LIDAR_RAYS) + 3] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 1] / putils.MAX_VX, -1.0, 1.0)
+        # Steering velocity [-MAX_VX, MAX_VX] -> [-1, 1]:
+        obs[(2*putils.N_LIDAR_RAYS) + 4] = np.clip(obs[(2*putils.N_LIDAR_RAYS) + 2] / putils.MAX_WZ, -1.0, 1.0)
         return obs.astype(np.float32)
 
     def compute_reward(self, raw_obs: np.ndarray, status: str) -> Tuple[float, dict]:
@@ -208,15 +209,15 @@ class Nav2GymEnv(gym.Env):
             # Dense step penalty encourages finding shorter, more direct paths:
             reward += putils.R_STEP_PENALTY
             # Dense progress reward is positive when closing distance to goal:
-            curr_x = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 3])
-            curr_y = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 4])
-            curr_dist = float((self.curr_goal_x - curr_x)**2 + (self.curr_goal_y - curr_y)**2)
+            delta_x = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 0])
+            delta_y = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 1])
+            curr_dist = float(np.sqrt(delta_x**2 + delta_y**2))
             progress = self.previous_dist_to_goal - curr_dist
             reward += putils.R_PROGRESS_SCALE * progress
             self.previous_dist_to_goal = curr_dist
             info['dist_to_goal'] = curr_dist
             # Dense smoothness penalty discourages unnecessary or jerky rotation:
-            wz  = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 2])
+            wz  = float(raw_obs[(2*putils.N_LIDAR_RAYS) + 4])
             reward += putils.R_SMOOTH_PENALTY * abs(wz)
             # Dense proximity penalty encourages maintaining clearance from walls:
             min_lidar_range = float(np.min(raw_obs[:(2*putils.N_LIDAR_RAYS)][0::2]))
@@ -224,7 +225,7 @@ class Nav2GymEnv(gym.Env):
                 reward += putils.R_PROXIMITY_SCALE * (putils.MIN_LIDAR_RANGE - min_lidar_range)
             info['reward'] = reward
             info['progress'] = progress
-            info['min_lidar'] = min_lidar
+            info['min_lidar'] = min_lidar_range
         return reward, info
 
 def train(
@@ -267,12 +268,13 @@ def train(
         vf_coef = 0.50,
         policy_kwargs = policy_kwargs,
         verbose = 1,
-        tensorboard_log = log_dir
+        tensorboard_log = log_dir,
+        device="cpu"    # NOTE - supposedly, CPU supports faster rollouts on PPO adn that GPU is only advantageous if actor/critic networks are huge or a CNN is being used for image processing
     )
     print(
         f"Starting PPO training\n"
         f"\tplanner    : {planner_type}\n"
-        f"\ttotal_steps: {total_steps:,}\n"
+        f"\ttotal_steps: {num_steps:,}\n"
         f"\tlog_dir    : {log_dir}\n"
         f"\tcheckpoints: {checkpoint_dir}"
     )
@@ -308,12 +310,17 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument('--mode', choices=['train', 'eval'], default='train', help='Run training or evaluation of a saved model')
-    p.add_argument('--planner',  choices=['dwb', 'mppi'],   default='dwb', help='Which Nav2 local planner to tune')
-    p.add_argument('--steps',    type=int, default=500_000, help='Total environment steps for training')
-    p.add_argument('--model',    type=str, default=None, help='Path to saved .zip model (required for --mode eval)')
+    p.add_argument('--planner', choices=['dwb', 'mppi'],   default='dwb', help='Which Nav2 local planner to tune')
+    p.add_argument('--steps', type=int, default=500_000, help='Total environment steps for training')
+    p.add_argument('--model', type=str, default=None, help='Path to saved .zip model (required for --mode eval)')
     p.add_argument('--episodes', type=int, default=10, help='Number of evaluation episodes')
-    p.add_argument('--log-dir',  type=str, default='./rl_logs', help='Directory for TensorBoard logs and Monitor CSVs')
+    p.add_argument('--log-dir', type=str, default='./rl_logs', help='Directory for TensorBoard logs and Monitor CSVs')
     p.add_argument('--ckpt-dir', type=str, default='./rl_checkpoints', help='Directory for model checkpoints')
+    p.add_argument('--net-arch', type=json.loads, default='[256, 256]', help='MLP hidden layer architecture for PPO actor/critic networks')
+    p.add_argument('--lr', type=str, default='3e-4', help='Learning rate for PPO training (in string format for supporting scientific notation, e.g. "1e-3")')
+    p.add_argument('--ro-buffer', type=int, default=2048, help='Rollout buffer size for PPO training')
+    p.add_argument('--batch-size', type=int, default=64, help='Batch size for PPO training')
+    p.add_argument('--epochs', type=int, default=10, help='Number of epochs for PPO training')
     return p
 
 if __name__ == '__main__':
