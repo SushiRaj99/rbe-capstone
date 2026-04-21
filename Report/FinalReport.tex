@@ -211,17 +211,15 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     increase clearance by 0.1m, decrease path smoothness by 0.05, etc.).Finally, the reward function resembles a standard direct function with a large
     positive reward for reaching the goal, a large negative reward for collisions, and small negative rewards for all other movements to encourage
     finding the shortest path to the goal.
-    
-    The reward function was then expanded to include the metrics described above for path quality, such as applying a small negative reward for high
-    path curvature or large changes in velocity to encourage smoother paths. Since the state vector is a lower dimensionality and more closely tied
-    to interactions with the environment, the RL agent will have more feedback during each episode to learn from and may converge to an optimal policy
-    more quickly than the one-time tuning approach. The dynamic tuning ``hands on'' nature should make this deployment more malleable from an RL
-    training perspective, as it provides the agent the opportunity to learn from each time step during navigation within a single episode. Regardless
-    of the method used to translate a static map into a state vector, the state vector of the dynamic tuning approach is much more similar to the
-    inputs of the local planner than the state vector of the one-time tuning approach. This facilitates easier learning and decision making for the
-    RL agent since there's already a strongly established correlation between parameters in the state vector and the performance of the local planner
-    that the RL agent is trying to optimize. Additionally, the actions for the dynamic tuning approach may be more forgiving than the action for the
-    one-time tuning approach, which leads to more stable results and the ability to walk back any missteps.
+
+    \subsubsection{Training Architecture}
+    TODO: Sushant, talk about how train.py works 
+
+    \subsubsection{Reward Function}
+    TODO: Sushant
+
+    \subsubsection{Training and Evaluation Tools}
+    TODO: Sushant, talk about the parameter visualizer
    
     \subsubsection{Performance Evaluation}
     In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
