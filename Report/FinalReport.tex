@@ -161,29 +161,11 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     the RL infrastructure and evaluating performance. Additionally, the simulation environment is constrained to a 2D grid with a TurtleBot robot
     model in order to simplify the state space and holonomic constraints for the path planners and RL infrastructure, again to avoid adding unnecessary complexity.
     
-    The simulation environment was designed to be cross-platform and reproducible, leveraging Docker to encapsulate all dependencies and ensure
+    The environment was designed to be cross-platform and reproducible, leveraging Docker to encapsulate all dependencies and ensure
     consistent behavior across the team's Mac, Windows, and Linux development machines. The environment is structured as a two-layer Docker image:
     a base capstone\_ros\_layer image that installs all system-level dependencies (ROS2, Nav2, TurtleBot4 description packages, and visualization
     tools), and a top-level rbe\_capstone image that layers in the project's ROS2 workspace. Separating dependency installation from application
     code allows the more expensive base layer to be rebuilt infrequently while code iteration remains fast.
-    
-    \subsection{Performance Evaluation}
-    In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
-    the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
-    combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
-    \begin{itemize}
-        \item Clearance from obstacles
-        \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
-        \item Efficiency (total time and distance to goal)
-        \item Smoothness (heading angle variance, velocity variance, etc.)
-    \end{itemize}
-
-    \subsection{Environment Setup}
-    The simulation environment was designed to be cross-platform and reproducible, leveraging Docker to encapsulate all dependencies and ensure
-    consistent behavior across the team's Mac, Windows, and Linux development machines. The environment is structured as a two-layer Docker image:
-    a base capstone\_ros\_layer image that installs all system-level dependencies (ROS2, Nav2, TurtleBot4 description packages, and visualization
-    tools), and a top-level rbe\_capstone image that layers in the project's ROS2 workspace. Separating dependency installation from application code
-    allows the more expensive base layer to be rebuilt infrequently while code iteration remains fast.
 
     The simulation runs on ROS2 Jazzy with the CycloneDDS middleware layer for inter-node communication. The robot model used is the TurtleBot4,
     whose URDF is loaded via \texttt{xacro} and published to the \texttt{/robot\_description} topic by the \texttt{robot\_state\_publisher} node.
@@ -198,7 +180,35 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     over Gazebo for visualization because it is more lightweight and the scope of this project does not require a full physics simulation. Gazebo will
     be consistently slower in launching and running episodes, which is not ideal for iterative tests and tuning of the RL algorithm. RViz2 provides
     sufficient visualization capabilities for the 2D occupancy grid and planned paths while allowing for faster iteration cycles.
-    -----TALK ABOUT GYMNASIUM ENVIRONMENT, NAV2 STACK, RL / PPO BUILD, REWARD FUNCTION-----
+
+    -----HIGH LEVEL TALK ABOUT GYMNASIUM ENVIRONMENT, NAV2 STACK, RL / PPO BUILD, REWARD FUNCTION??-----
+    
+    \subsection{Performance Evaluation}
+    In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
+    the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
+    combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
+    \begin{itemize}
+        \item Clearance from obstacles
+        \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
+        \item Efficiency (total time and distance to goal)
+        \item Smoothness (heading angle variance, velocity variance, etc.)
+    \end{itemize}
+
+    \subsection{Code Architecture}
+    -----CODE FLOW / BREAKDOWN OF KEY FILES-----
+        \subsubsection{Planner control & Episone Runner}
+        These two ROS2 nodes (planner_controller.py and episode_runner.py) work in concert with eachother and act as the backbone for the episodic training
+        that is needed for the RL agent as well as building a basic baseline to compare it against. The planner node is able to dynamically switch between
+        the DWB and MPPI planners and then loads and maps the correct parameters (linear and angular acceleration and velocity, as well as required distances)
+        to pass into the episode runner. It also acts as a go-between to stored and communicate parameters as they change throughout the RL training and
+        pushes them out to the episode runner.
+        ----DIAGRAM----
+
+        The episode_runner node, as the name implise, runs a loop of episodes for both the untrained (benchmark) and trained (RL mode) path planners. It sets
+        up the simulation environment including the map and Turtlebot, and metrics for data collection. During the episodes and once the Nav2 finishes,
+        it fetches the designed performance metrics for analysis and comparison. After each timestep in the simulation, this node works with the planner
+        to capture the required data for the rest of the RL architecture.
+        ---DIAGRAM----
 
     \subsection{RL Architecture}
     The RL component of the project is a trainable RL agent that tunes planner parameters directly through the Nav2 stack. Independent from the
