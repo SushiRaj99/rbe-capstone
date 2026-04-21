@@ -66,7 +66,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     \subsection{Current state of the Art}
     In the industrial environment of Autonomous Mobil Robots (AMRs), path planners are generally deployed en-mass and are not tailored to the
     customers or environment needs in which they are deployed. This results in good, but not excellent performance, and while easier to maintain on
-    the backend, can limit customer output on the front end. These general deployments often cast a wide net and aim to operate on the `safe side',
+    the backend, can limit customer output on the front end. These general deployments often cast a wide net and aim to operate on the ``safe side'',
     whether that be wide, nonadjustable clearance, paths around high traffic areas, or creating lanes that avoid foot traffic altogether. In reality,
     each customer has different needs, and outside of required safety standards, may have certain workplace standards that could offer better
     performance if utilized properly to tune the AMR deployment. It is obvious that hand tuning any number of parameters for each individual
@@ -79,7 +79,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     To reduce the amount of manual input needed to tune path planner parameters, an RL algorithm is deployed into the simulation for a period of
     training and the following parameters are adjusted to optimize the Turtlebot travel across the simulated warehouse: Clearance, Accuracy,
     Efficiency, and Smoothness. These four parameters have been previously proven to be statistically significant modifies for both path planners 
-    under study \cite{b1} \cite{b2}. In this context, a dens reward function is custom-built to help direct the RL algorithm through each episode so
+    under study \cite{b1} \cite{b2}. In this context, a dense reward function is custom-built to help direct the RL algorithm through each episode so
     that when it is deployed, it can be more lightweight in terms of computational load.
 
     \subsection{Background}
@@ -89,7 +89,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     as a reasonable set of starting points.
         
         \subsection{Path planning}
-        Elbouhy et. al designed a study that consisted three different path planners that were tested in environments with static and dynamic
+        Elbouhy et. al designed a study that consisted of three different path planners that were tested in environments with static and dynamic
         obstacles and the results were then evaluated to compare algorithms. The study analyzed DWB, MPPI, and RPP (Improved Pure Pursuit) planners
         and used the following criteria to determine path quality: time, distance, smoothness, minimum clearance, runs completed, and number of
         recoveries. This study showed that MPPI was the fastest but least smooth, DWB operated with the least clearance, and RPP took the most time
@@ -99,9 +99,9 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         Li et. al studied the Dynamic Window Approach (DWA) algorithm and adjusted evaluation parameters in an effort to optimize the path planning.
         The evaluation function utilized in this paper looked at the heading, the distance between the trajectory and nearest obstacle, and the speed
         of the robot, along with weighted modifiers of each. A simple environment was setup and the tuning modifiers were adjusted for optimization
-        \cite{b2}. In the context of this project, the interest lies in the tuning equations itself and Li's tuning equation above provided a 
+        \cite{b2}. In the context of this project, the interest lies in the tuning equation itself; and Li's tuning equation provided a 
         confident proof-of-concept that path planning algorithms can be tuned and optimized on a limited number of parameters and the results are
-        statistically significant and positive .
+        statistically significant and positive.
 
         \subsection{Reinforcement Learning}
         Qu et. al. presented a method of training an RL policy offline to accelerate the convergence for the online control of MPPI in an unmanned
@@ -113,7 +113,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         instead of replacing them by leveraging the strengths of both RL and traditional path planning algorithms to create a more efficient and 
         adaptable path planning solution for mobile robots in complex environments.
 
-        Ting et. al. present a modified Proximal Policy Optimization (PPO) in conjunction with a deep reinforcement learning (DRL) algorithm in
+        Ting et. al. presented a modified Proximal Policy Optimization (PPO) in conjunction with a deep reinforcement learning (DRL) algorithm in
         order to reduce the time needed to move an agent through an environment. To reduce the number of episodes required and thus the calculation
         time for each move, they proposed a distance-based weighted dense reward function. The reward function they proposed utilized the euclidean
         distance to the goal to provide a higher value reward for better steps \cite{b4}. Since this reward function is not strictly linked to PPO
@@ -154,7 +154,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         demonstrates a novel approach to optimizing path planning performance in a way that is adaptable to the specific needs of different
         deployment sites.
 
-\\section{Materials and Methods}\label{sec:pq_metrics}
+\section{Materials and Methods}\label{sec:pq_metrics}
     \subsection{Simulation setup}
     In order to reduce the scope and complexity of the required programming of this project, an RL agent was implemented within ROS2. Using ROS2
     prevents needing to develop a simulation environment and navigation stack from scratch; which allows for more dedicated effort to developing
@@ -174,41 +174,11 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     \texttt{.yaml} files and are selectable at launch time, enabling the team to quickly swap between different warehouse environments as the project
     progresses.
 
-    Visualization is handled by RViz2, which renders the robot model, occupancy map, and planned paths. A single parameterized launch file,
-    \texttt{view\_robot.launch.py}, brings up all required nodes---the robot state publisher, static TF broadcasters, map server, lifecycle manager,
-    and RViz2---making it straightforward to stand up the full environment with a single command. For the purpose of this project, RViz2 is chosen
+    Visualization is handled by RViz2, which renders the robot model, occupancy map, and planned paths. For the purpose of this project, RViz2 is chosen
     over Gazebo for visualization because it is more lightweight and the scope of this project does not require a full physics simulation. Gazebo will
     be consistently slower in launching and running episodes, which is not ideal for iterative tests and tuning of the RL algorithm. RViz2 provides
-    sufficient visualization capabilities for the 2D occupancy grid and planned paths while allowing for faster iteration cycles.
-
-    -----HIGH LEVEL TALK ABOUT GYMNASIUM ENVIRONMENT, NAV2 STACK, RL / PPO BUILD, REWARD FUNCTION??-----
-    
-    \subsection{Performance Evaluation}
-    In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
-    the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
-    combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
-    \begin{itemize}
-        \item Clearance from obstacles
-        \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
-        \item Efficiency (total time and distance to goal)
-        \item Smoothness (heading angle variance, velocity variance, etc.)
-    \end{itemize}
-
-    \subsection{Code Architecture}
-    -----CODE FLOW / BREAKDOWN OF KEY FILES-----
-        \subsubsection{Planner control & Episone Runner}
-        These two ROS2 nodes (planner_controller.py and episode_runner.py) work in concert with eachother and act as the backbone for the episodic training
-        that is needed for the RL agent as well as building a basic baseline to compare it against. The planner node is able to dynamically switch between
-        the DWB and MPPI planners and then loads and maps the correct parameters (linear and angular acceleration and velocity, as well as required distances)
-        to pass into the episode runner. It also acts as a go-between to stored and communicate parameters as they change throughout the RL training and
-        pushes them out to the episode runner.
-        ----DIAGRAM----
-
-        The episode_runner node, as the name implise, runs a loop of episodes for both the untrained (benchmark) and trained (RL mode) path planners. It sets
-        up the simulation environment including the map and Turtlebot, and metrics for data collection. During the episodes and once the Nav2 finishes,
-        it fetches the designed performance metrics for analysis and comparison. After each timestep in the simulation, this node works with the planner
-        to capture the required data for the rest of the RL architecture.
-        ---DIAGRAM----
+    sufficient visualization capabilities for the 2D occupancy grid and planned paths while allowing for faster iteration cycles. To further speed up iterative development, launch files are configured to bring up all required nodes---the robot state publisher, static TF broadcasters, map server, lifecycle manager,
+    and RViz2---making it straightforward to start up the full environment with a single command. 
 
     \subsection{RL Architecture}
     The RL component of the project is a trainable RL agent that tunes planner parameters directly through the Nav2 stack. Independent from the
@@ -222,37 +192,58 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     positive reward for reaching the goal, a large negative reward for collisions, and small negative rewards for all other movements to encourage
     finding the shortest path to the goal.
 
-    \subsubsection{Training Architecture}
-    TODO: Sushant, talk about how train.py works 
+    % Depending on how the "Performance Evaluation" builds out (see respective note in that sub-sub section), the gymnasium environment could either be introduced in it's own subsubsection here, or it could be introduced within the "Training Architecture" section below. Either way, it should be talked about.
 
-    \subsubsection{Reward Function}
-    TODO: Sushant
+        \subsubsection{Training Architecture}
+        %TODO: Sushant, talk about how train.py works 
 
-    \subsubsection{Training and Evaluation Tools}
-    TODO: Sushant, talk about the parameter visualizer
+        \subsubsection{Reward Function}
+        %TODO: Sushant
+
+        \subsubsection{Training and Evaluation Tools}
+        %TODO: Sushant, talk about the parameter visualizer
    
-    \subsubsection{Performance Evaluation}
-    In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
-    the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
-    combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
-    \begin{itemize}
-        \item Clearance from obstacles
-        \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
-        \item Efficiency (total time and distance to goal)
-        \item Smoothness (heading angle variance, velocity variance, etc.)
-    \end{itemize}
+        \subsubsection{Performance Evaluation}
+        In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
+        the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
+        combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
+        \begin{itemize}
+            \item Clearance from obstacles
+            \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
+            \item Efficiency (total time and distance to goal)
+            \item Smoothness (heading angle variance, velocity variance, etc.)
+        \end{itemize}
+        % Not sure exactly what Sushant's latest version does (don't think it's uploaded to his branch yet), but if these are all baked into the reward function, the actual "performance evaluation" would be assessing and comparing the total rewards of the planners as a sort of score. Benefit to this is that it's a concrete single score and might minimize the amount of individual analysis needed for each criteria. If Sushant's latest branch doesn't already include it, it shouldn't be too hard to write a dedicated script to run a baseline planner within the gymnasium environment (you either fake an action at every step, or just compute a reward for each observation that builds up in the queue).
+
+    \subsection{Code Architecture}
+    % Moved this after the RL architecture section for two reasons: 1) Huge chunk of our code is dedicated to RL and it doesn't make much sense to exclude it from this section 2) Including graphics here could minimize the amount of descriptive text needed in the "RL Architecture" section. If stuff starts getting wordy up there, we can just say "see Code Architecture section", or "see Figure __" and refer to figures here.
+    -----PRESENT CODE FLOW / BREAKDOWN OF KEY FILES-----
+        \subsubsection{Planner control and Episode Runner}
+        These two ROS2 nodes (planner\_controller.py and episode\_runner.py) work in concert with each other and act as the backbone for the episodic training
+        that is needed for the RL agent as well as building a basic baseline to compare it against. The planner node is able to dynamically switch between
+        the DWB and MPPI planners and then loads and maps the correct parameters (linear and angular acceleration and velocity, as well as required distances)
+        to pass into the episode runner. It also acts as a go-between to stored and communicate parameters as they change throughout the RL training and
+        pushes them out to the episode runner.
+        ----DIAGRAM----
+        
+        The episode\_runner node, as the name implise, runs a loop of episodes for both the untrained (benchmark) and trained (RL mode) path planners. It sets
+        up the simulation environment including the map and Turtlebot, and metrics for data collection. During the episodes and once the Nav2 finishes,
+        it fetches the designed performance metrics for analysis and comparison. After each timestep in the simulation, this node works with the planner
+        to capture the required data for the rest of the RL architecture.
+        ----DIAGRAM----
 
 \section{Experimentation}
-    \subsection{Standard path planners}
+% Hopefully prof. will clarify what the intention of this section is. I interpretted this section more of a "Here's all the stuff we tried"; but it's reasonably interpretted below as "Here's how we obtained our results". Either way, it's weird that it has its own dedicated section.
+    \subsection{Standard Path Planners}
     To generate an accurate baseline and determine the effectiveness of the RL agent, ----XX---- simulations were run with the off-the-shelf MPPI
     planner and DWB planner. Each simulation was evaluated for clearance, accuracy, efficiency, and smoothness and the results for both can be seen
-    below. The MPPI had an average -----Rattle off some raw data -----
+    below. The MPPI had an average -----Placeholder for raw data -----
     -----TABLE / GRAPHICS ---------.
     
-    \subsection{RL-trained planners}
+    \subsection{RL-Trained Planners}
     For the RL agent, it was first trained ----XX---- and then deployed in the same environments as the above planners. The path was then evaluated
     against the same four qualifies and comparisons were drawn.
-    -----Rattle off some data -----
+    -----Placeholder for data -----
     -----TABLE / GRAPHICS ---------.
     A detailed analysis of the data can be seen below in the Results section.
 
