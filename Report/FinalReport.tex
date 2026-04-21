@@ -182,10 +182,10 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
     \subsection{RL Architecture}
     The RL component of the project is a trainable RL agent that tunes planner parameters directly through the Nav2 stack. Independent from the
-    specific path planning algorithm, two design options initially were explored for RL architecture of the states, a one-time parameter tune, or a
+    specific path planning algorithm, two design options were initially explored for RL architecture of the states: a one-time parameter tune, or a
     dynamic parameter tuning. It was decided that the implementation and expected results of a dynamic RL application would be favorable and feasible
     within the scope of this project. With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters
-    throughout the navigation process where the state would includes the robot's current pose, velocity, distance from the goal, the obstacle cost of the surrounding environment. The actions continously adjust the parameters (continuous mode) at each timestep. The reward function is be designed to encourage efficient, smooth, and safe navigation by providing positive rewards for progress towards the goal and negative rewards for collisions, long travel times, and time spent in close proximity to obstacles. The goal of these rewards is to encourage the agent to learn how to guide the robot through crowded environments as smoothly and quickly as possible.
+    throughout the navigation process where the state (observation) vector includes the robot's current pose, velocity, distance from the goal, and the obstacle cost of the surrounding environment. The actions continuously adjust the parameters (via a continuous action space) at each timestep. To support frequent observations and actions throughout the navigation process, the reward function is designed to encourage efficient, smooth, and safe navigation by providing positive rewards for progress towards the goal and negative rewards for collisions, long travel times, and time spent in close proximity to obstacles. The goal of these rewards is to encourage the agent to learn how to guide the robot through crowded environments as smoothly and quickly as possible.
 
     % Depending on how the "Performance Evaluation" builds out (see respective note in that sub-sub section), the gymnasium environment could either be introduced in it's own subsubsection here, or it could be introduced within the "Training Architecture" section below. Either way, it should be talked about.
 
@@ -195,14 +195,16 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
         A per-step exponential moving average (EMA) with $\alpha=0.3$ is set up to smooth the raw policy output before it is sent to the navigation stack. The smoothed action vector is appended to the observation so the policy can reason about what parameters are currently active. This is important because the reward function needs to encourage smooth parameter changes, and the policy needs to learn how drastic parameter changes can lead to negative rewards. The EMA helps to mitigate this issue by smoothing out the policy's output, but it also means that the policy needs to learn how its actions will be smoothed over time.
 
-        Checkpoints are saved every 2000 environment steps using SB3's \texttt{CheckpointCallback}. The replay buffer is saved
+        The actual learning for the policy was accomplished using SB3's Soft Actor-Critic (SAC) agent. While most of the reviewed literature used the PPO algorithm, we found that PPO is not suited for converging quickly enough within the environment and time constraints of this project. While PPO may not be a bad option overall, speeding up PPO learning for this particular state and action space would require extensive hyperparameter tuning --- especially with the parameters related to exploration since the action space is so diverse. And even with extensive hyperparameter tuning, the exploration strategy and on-policy nature of PPO may not be ideal for significantly improving learning within this project scope. On the other hand, SAC is an off-policy algorithm with a much stronger emphasis on exploration \cite{b11}. This makes the algorithm incredibly sample efficient, which is helpful for environments like ours that are ``expensive'' to sample (e.g. feedback for each action within our environment is built on multiple complicated layers of asyncronous software). SAC ensures that a wide variety of planner parameter configurations are continually explored and evaluated without degrading the quality of the learned policy.
+
+        Checkpoints are saved every 2000 environment steps using SB3's \texttt{CheckpointCallback}. The SAC replay buffer is saved
         alongside the policy weights so that training can be resumed without discarding previously collected transitions. If a checkpoint
         is resumed but its replay buffer file is missing, the \texttt{learning\_starts} threshold is extended by an additional 500 steps
         to prevent gradient updates on an empty buffer.
 
         \subsubsection{Reward Function}
-        The reward function is built around five per-step terms and two terminal terms. Each term targets one of the four navigation
-        quality criteria: efficiency, smoothness, accuracy, and clearance.
+        The reward function is built around five per-step terms (dense rewards) and two terminal terms (sparse rewards). Each term targets one of four relevant navigation
+        quality criteria used for evaluation throughout the literature: efficiency, smoothness, accuracy, and clearance.
 
         The primary signal is a progress reward proportional to the reduction in distance to the goal each timestep, which gives the
         agent a continuous incentive to move forward rather than waiting for a sparse goal signal at the end of the episode. Three
@@ -239,17 +241,19 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         rather than a training issue. Having a direct view of what the agent was actually doing to the planner at each step made these
         problems straightforward to diagnose.
    
-        \subsubsection{Performance Evaluation}
-        In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
-        the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
-        combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
-        \begin{itemize}
-            \item Clearance from obstacles
-            \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
-            \item Efficiency (total time and distance to goal)
-            \item Smoothness (heading angle variance, velocity variance, etc.)
-        \end{itemize}
-        % Not sure exactly what Sushant's latest version does (don't think it's uploaded to his branch yet), but if these are all baked into the reward function, the actual "performance evaluation" would be assessing and comparing the total rewards of the planners as a sort of score. Benefit to this is that it's a concrete single score and might minimize the amount of individual analysis needed for each criteria. If Sushant's latest branch doesn't already include it, it shouldn't be too hard to write a dedicated script to run a baseline planner within the gymnasium environment (you either fake an action at every step, or just compute a reward for each observation that builds up in the queue).
+    \subsection{Performance Evaluation}
+    In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
+    the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
+    combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
+    \begin{itemize}
+        \item Clearance from obstacles
+        \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
+        \item Efficiency (total time and distance to goal)
+        \item Smoothness (heading angle variance, velocity variance, etc.)
+    \end{itemize}
+    
+    % Going out on a limb since and stating that the actual "performance evaluation" would be assessing and comparing the total rewards of the planners as a sort of score since these are all baked into the reward function. Benefit to this is that it's a concrete single score and might minimize (or hopefully remove) the amount of individual analysis needed for each criteria. If Sushant's latest branch doesn't already include it, it shouldn't be too hard to write a dedicated script to run a baseline planner within the gymnasium environment (you either fake an action at every step, or just compute a reward for each observation that builds up in the queue).
+    Since each of the criteria listed above was incorporated directly into the reward function for training the RL agent, the same reward function was used to evaluate the overall ``score'' of both the RL-augmented and baseline planners. Since the reward is already computed for each step through the custom gymnasium environment, the performance evaluation was accomplished by having both the RL-augmented planner (operating with a frozen policy) and the baseline planner step through the custom gymnasium enviornment over the same predefined set of episodes.
 
     \subsection{Code Architecture}
     % Moved this after the RL architecture section for two reasons: 1) Huge chunk of our code is dedicated to RL and it doesn't make much sense to exclude it from this section 2) Including graphics here could minimize the amount of descriptive text needed in the "RL Architecture" section. If stuff starts getting wordy up there, we can just say "see Code Architecture section", or "see Figure __" and refer to figures here.
@@ -346,6 +350,8 @@ Figures \ref{fig:view_tb} and \ref{fig:move_tb} below showcase the current state
 \bibitem{b9} A. Debnath, G. J. Stein, and J. Ko\v{s}eck\'{a}, "A Hybrid Approach to Indoor Social Navigation: Integrating Reactive Local Planning and Proactive Global Planning," \textit{2025 IEEE International Conference on Robotics and Automation (ICRA)}, Atlanta, USA, May 2025, pp. 10432--10438, doi: \url{https://doi.org/10.1109/ICRA55743.2025.11127475}.
 
 \bibitem{b10} A. Rana and B. Kaveendran, "Deep Reinforcement Learning with PPO for Autonomous Mobile Robot Navigation Using ROS 2 Framework," \textit{International Journal for Research in Applied Science and Engineering Technology (IJRASET)}, vol. 13, no. VII, Jul. 2025, doi: \url{https://doi.org/10.22214/ijraset.2025.73330}.
+
+\bibitem{b11} T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor,” arXiv (Cornell University), Jan. 2018, doi: \url{https://doi.org/10.48550/arxiv.1801.01290}.
 
 \end{thebibliography}
 
