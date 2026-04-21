@@ -31,7 +31,7 @@ class LivePlotCallback(BaseCallback):
         self._ep_r_progress:  list = []
         self._ep_r_pathdev:   list = []
         self._ep_r_angvel:    list = []
-        self._ep_r_collision: list = []
+        self._ep_r_proximity: list = []
         self._ep_r_time:      list = []
         self._ep_r_terminal:  list = []
 
@@ -64,7 +64,7 @@ class LivePlotCallback(BaseCallback):
                 self._ep_r_progress.append(float(ep_info['r_progress']))
                 self._ep_r_pathdev.append(float(ep_info['r_pathdev']))
                 self._ep_r_angvel.append(float(ep_info['r_angvel']))
-                self._ep_r_collision.append(float(ep_info['r_collision']))
+                self._ep_r_proximity.append(float(ep_info['r_proximity']))
                 self._ep_r_time.append(float(ep_info.get('r_time', 0.0)))
                 self._ep_r_terminal.append(float(ep_info['r_terminal']))
                 self._ep_collision_frac.append(float(ep_info['collision_frac']))
@@ -172,7 +172,7 @@ class LivePlotCallback(BaseCallback):
                 ('progress',  self._ep_r_progress,  'steelblue'),
                 ('path_dev',  self._ep_r_pathdev,   'goldenrod'),
                 ('ang_vel',   self._ep_r_angvel,    'purple'),
-                ('collision', self._ep_r_collision, 'firebrick'),
+                ('proximity', self._ep_r_proximity, 'firebrick'),
                 ('time',      self._ep_r_time,      'gray'),
                 ('terminal',  self._ep_r_terminal,  'seagreen'),
             ]

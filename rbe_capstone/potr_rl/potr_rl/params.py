@@ -88,14 +88,14 @@ OBS_HIGH = np.concatenate([path_cost_high, state_high])
 
 # Reward weights — per-tick terms accumulate ~1200× per episode at action_freq=10.
 # Shaped so that episode *duration* (which the policy can influence via
-# max_vel/accel) dominates the variable part of the signal. Earlier weights made
-# path_dev the dominant term, but path_dev is mostly determined by DWB + global
-# plan and barely moves across policy variations — the signal was all noise.
+# max_vel/accel) dominates the variable part of the signal. The proximity term
+# replaced a binary collision penalty so the policy gets a continuous gradient
+# for "stay out of the inflation halo," not just "don't hit the wall."
 REWARD = {
     'progress':     1.0,    # per-metre closer to goal
     'path_dev':    -0.02,   # per-metre lateral deviation per tick (small — guardrail only)
     'ang_vel':     -0.01,   # per rad/s per tick (small — guardrail only)
-    'collision':   -10.0,   # per tick where collision=True
+    'proximity':   -0.1,    # graduated: multiplied by max(0, path_cost_near-30)/100 per tick
     'time_step':   -0.2,    # per tick — dominant per-episode term; rewards faster completions
     'goal_bonus':   100.0,  # terminal: goal reached
     'fail_penalty': -50.0,  # terminal: episode ended without reaching goal

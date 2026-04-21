@@ -183,7 +183,7 @@ class PotrNavEnv(gym.Env):
         self.ep_r_progress   = 0.0
         self.ep_r_pathdev    = 0.0
         self.ep_r_angvel     = 0.0
-        self.ep_r_collision  = 0.0
+        self.ep_r_proximity  = 0.0
         self.ep_r_time       = 0.0
         self.ep_collision_steps = 0
         self.ep_step_count   = 0
@@ -258,7 +258,7 @@ class PotrNavEnv(gym.Env):
             'r_progress':      self.ep_r_progress,
             'r_pathdev':       self.ep_r_pathdev,
             'r_angvel':        self.ep_r_angvel,
-            'r_collision':     self.ep_r_collision,
+            'r_proximity':     self.ep_r_proximity,
             'r_time':          self.ep_r_time,
             'r_terminal':      terminal_reward,
             'collision_frac':  self.ep_collision_steps / max(self.ep_step_count, 1),
@@ -357,16 +357,20 @@ class PotrNavEnv(gym.Env):
         r_progress  = REWARD['progress']  * progress
         r_pathdev   = REWARD['path_dev']  * msg.path_deviation
         r_angvel    = REWARD['ang_vel']   * msg.angular_velocity
-        r_collision = REWARD['collision'] * float(msg.collision)
+        # Graduated proximity penalty: zero below cost 30, linear above.
+        # path_cost_near peaks at 254 (lethal); the /100 rescales the slope so
+        # the peak penalty (~-0.22/tick) is comparable to the time term.
+        proximity   = max(0.0, float(msg.path_cost_near) - 30.0) / 100.0
+        r_proximity = REWARD['proximity'] * proximity
         r_time      = REWARD['time_step']
 
         self.ep_r_progress      += r_progress
         self.ep_r_pathdev       += r_pathdev
         self.ep_r_angvel        += r_angvel
-        self.ep_r_collision     += r_collision
+        self.ep_r_proximity     += r_proximity
         self.ep_r_time          += r_time
-        self.ep_collision_steps += int(msg.collision)
+        self.ep_collision_steps += int(msg.collision)  # diagnostic only, not in reward
         self.ep_step_count      += 1
         self.ep_last_distance    = raw_dist
 
-        return float(r_progress + r_pathdev + r_angvel + r_collision + r_time)
+        return float(r_progress + r_pathdev + r_angvel + r_proximity + r_time)
