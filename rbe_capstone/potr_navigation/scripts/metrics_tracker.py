@@ -15,6 +15,7 @@ from potr_navigation.msg import EpisodeMetrics, StepMetrics
 
 
 def quat_to_yaw(q) -> float:
+    """Extract yaw from a geometry_msgs Quaternion."""
     return math.atan2(
         2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z),
@@ -58,56 +59,57 @@ class MetricsTracker(Node):
         self.path_devs     = []
         self.last_pos      = None
         self.collision_count = 0
-        # Drop stale plan — path_deviation should only be measured
-        # against a plan published for the current episode's goal.
+        # Drop stale plan from last episode
         self.current_plan  = []
         self.last_path_dev = 0.0
 
+        # Welford running stats: (n, mean, M2)
         self.spd_n, self.spd_mean, self.spd_M2 = 0, 0.0, 0.0
         self.hdg_n, self.hdg_mean, self.hdg_M2 = 0, 0.0, 0.0
 
     def odom_cb(self, msg):
+        # 1. Pose in odom frame (straight from the message)
         odom_x = msg.pose.pose.position.x
         odom_y = msg.pose.pose.position.y
+        yaw    = quat_to_yaw(msg.pose.pose.orientation)
 
-        yaw = quat_to_yaw(msg.pose.pose.orientation)
-
-        # Plan and goal live in the map frame, odom does not — look up
-        # base_link in map so path_deviation / distance_to_goal are consistent.
+        # 2. Pose in map frame — plan and goal both live in map
         try:
             t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
             x = t.transform.translation.x
             y = t.transform.translation.y
         except Exception:
+            # TF not ready — fall back to odom so metrics don't go NaN
             x, y = odom_x, odom_y
 
+        # 3. Accumulate distance travelled (odom diffs — TF jitters too much)
         if self.last_pos is not None:
             dx = odom_x - self.last_pos[0]
             dy = odom_y - self.last_pos[1]
             self.total_dist += math.sqrt(dx * dx + dy * dy)
         self.last_pos = (odom_x, odom_y)
 
+        # 4. Collision check against local costmap (odom frame)
         collision = False
         if self.costmap is not None:
-            # /local_costmap/costmap is in odom frame — use odom coordinates
-            # for cell lookup regardless of which frame we resolved for the plan.
             if get_costmap_cost(odom_x, odom_y, self.costmap) >= 100:
                 self.collision_count += 1
                 collision = True
         self.last_collision = collision
 
+        # 5. Speed + heading-rate running stats (Welford)
         vx = msg.twist.twist.linear.x
         vy = msg.twist.twist.linear.y
         speed = math.sqrt(vx * vx + vy * vy)
         self.spd_n, self.spd_mean, self.spd_M2 = welford(
             self.spd_n, self.spd_mean, self.spd_M2, speed
         )
-
         wz = abs(msg.twist.twist.angular.z)
         self.hdg_n, self.hdg_mean, self.hdg_M2 = welford(
             self.hdg_n, self.hdg_mean, self.hdg_M2, wz
         )
 
+        # 6. Lateral deviation from the global plan
         path_dev = 0.0
         if len(self.current_plan) >= 2:
             dev = point_to_path_dist(x, y, self.current_plan)
@@ -116,8 +118,9 @@ class MetricsTracker(Node):
                 path_dev = dev
         self.last_path_dev = path_dev
 
+        # 7. Distance + heading error to goal
         dist_to_goal = 0.0
-        heading_err = 0.0
+        heading_err  = 0.0
         if self.current_goal is not None:
             gx = self.current_goal.position.x
             gy = self.current_goal.position.y
@@ -125,8 +128,10 @@ class MetricsTracker(Node):
             bearing = math.atan2(gy - y, gx - x)
             heading_err = ((bearing - yaw) + math.pi) % (2 * math.pi) - math.pi
 
+        # 8. Upcoming path-cost windows (near / mid / far)
         cost_near, cost_mid, cost_far = self.compute_path_costs(x, y)
 
+        # 9. Publish StepMetrics for the RL env
         s = StepMetrics()
         s.distance_to_goal      = dist_to_goal
         s.heading_error_to_goal = heading_err
@@ -147,19 +152,14 @@ class MetricsTracker(Node):
         self.step_pub.publish(s)
 
     def compute_path_costs(self, x_map, y_map):
-        """Walk the global plan forward from the nearest plan-point to the
-        robot, sampling the *global* costmap in three arc-length windows
-        ahead: [0, 1 m], [1, 3 m], [3, 6 m]. Returns each window's max cost
-        so the policy sees the worst obstacle on the upcoming planned path.
-
-        Global costmap is in the map frame — same frame as the plan — so we
-        can look each plan point up directly with no offset. The local
-        costmap's 3x3m rolling window would silently return 0 for anything
-        past ~1.5m, which is why we don't use it here.
+        """Max global-costmap cost in three arc-length windows along the
+        upcoming plan: [0, 1], [1, 3], [3, 6] metres. Global costmap because
+        the local one's 3x3m window returns 0 past ~1.5m.
         """
         if self.global_costmap is None or len(self.current_plan) < 2:
             return 0.0, 0.0, 0.0
 
+        # 1. Find closest plan point to the robot
         closest_i = 0
         closest_d2 = float('inf')
         for i, (px, py) in enumerate(self.current_plan):
@@ -168,6 +168,7 @@ class MetricsTracker(Node):
                 closest_d2 = d2
                 closest_i = i
 
+        # 2. Walk forward along the plan, bucketing max cost by arc-length
         bins = ((0.0, 1.0), (1.0, 3.0), (3.0, 6.0))
         far_horizon = bins[-1][1]
         maxes = [0, 0, 0]
@@ -237,6 +238,7 @@ class MetricsTracker(Node):
 
 
 def welford(n, mean, M2, x):
+    """Online mean / M2 update. Variance = M2 / (n - 1)."""
     n += 1
     delta = x - mean
     mean += delta / n
@@ -245,6 +247,7 @@ def welford(n, mean, M2, x):
 
 
 def get_costmap_cost(px, py, costmap):
+    """Cost at world point (px, py) in the given OccupancyGrid. 0 if OOB."""
     mx = int((px - costmap.info.origin.position.x) / costmap.info.resolution)
     my = int((py - costmap.info.origin.position.y) / costmap.info.resolution)
     if mx < 0 or my < 0 or mx >= costmap.info.width or my >= costmap.info.height:
@@ -253,6 +256,7 @@ def get_costmap_cost(px, py, costmap):
 
 
 def point_to_path_dist(px, py, path):
+    """Min distance from (px, py) to a polyline given as list of (x, y)."""
     min_dist = float('inf')
     for i in range(len(path) - 1):
         ax, ay = path[i]
@@ -260,8 +264,10 @@ def point_to_path_dist(px, py, path):
         dx, dy = bx - ax, by - ay
         seg_sq = dx * dx + dy * dy
         if seg_sq < 1e-9:
+            # degenerate segment — just distance to endpoint
             d = math.sqrt((px - ax) ** 2 + (py - ay) ** 2)
         else:
+            # project onto segment, clamp to [0, 1]
             t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg_sq))
             cx, cy = ax + t * dx, ay + t * dy
             d = math.sqrt((px - cx) ** 2 + (py - cy) ** 2)

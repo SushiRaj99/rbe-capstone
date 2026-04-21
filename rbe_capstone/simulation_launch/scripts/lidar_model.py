@@ -4,8 +4,9 @@ import math
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from sensor_msgs.msg import LaserScan
-from nav_msgs.srv import GetMap
+from nav_msgs.msg import OccupancyGrid
 from tf2_ros import Buffer, TransformListener
 
 
@@ -42,32 +43,28 @@ class LidarModel(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.map_client = self.create_client(GetMap, '/map_server/map')
-        while not self.map_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Waiting for map service to activate...')
-        self.future = self.map_client.call_async(GetMap.Request())
-        self.future.add_done_callback(self.map_callback)
+        # Subscribe to /map with transient-local QoS so we latch the current
+        # map on connect AND get fresh messages whenever episode_runner calls
+        # LoadMap. A one-shot GetMap service call at startup would leave the
+        # lidar ray-tracing against the stale map forever after a switch.
+        latched_qos = QoSProfile(
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+        )
+        self.create_subscription(OccupancyGrid, '/map', self.map_cb, latched_qos)
 
         self.timer = self.create_timer(0.1, self.publish_scan)
 
-    def map_callback(self, future):
-        try:
-            response = future.result()
-        except Exception as e:
-            self.get_logger().error(f'Map service call failed: {e!r}')
-            return
-        if response is None:
-            self.get_logger().warn('Map service call received empty response.')
-            return
-
-        info = response.map.info
+    def map_cb(self, msg: OccupancyGrid) -> None:
+        info = msg.info
         self.origin_x = info.origin.position.x
         self.origin_y = info.origin.position.y
         self.resolution = info.resolution
         self.width = info.width
         self.height = info.height
         self.occ = (
-            np.asarray(response.map.data, dtype=np.int8).reshape(self.height, self.width) > 50
+            np.asarray(msg.data, dtype=np.int8).reshape(self.height, self.width) > 50
         )
         # One step per cell — matches grid resolution, no benefit to oversampling.
         self.steps = np.arange(self.range_min, self.range_max + self.resolution, self.resolution)

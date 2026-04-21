@@ -7,10 +7,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from rcl_interfaces.srv import SetParameters
 from ament_index_python.packages import get_package_share_directory
-from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from std_msgs.msg import String
 from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
@@ -21,23 +21,23 @@ PLUGIN_NS = {'DWB': 'FollowPathDWB', 'MPPI': 'FollowPath'}
 
 SHARED_PARAM_MAP = {
     'DWB': {
-        'max_linear_vel':   'FollowPathDWB.max_vel_x',
-        'min_linear_vel':   'FollowPathDWB.min_vel_x',
-        'max_angular_vel':  'FollowPathDWB.max_vel_theta',
-        'linear_accel':     'FollowPathDWB.acc_lim_x',
-        'angular_accel':    'FollowPathDWB.acc_lim_theta',
+        'max_linear_vel': 'FollowPathDWB.max_vel_x',
+        'min_linear_vel': 'FollowPathDWB.min_vel_x',
+        'max_angular_vel': 'FollowPathDWB.max_vel_theta',
+        'linear_accel': 'FollowPathDWB.acc_lim_x',
+        'angular_accel': 'FollowPathDWB.acc_lim_theta',
         'goal_align_scale': 'FollowPathDWB.GoalAlign.scale',
         'path_align_scale': 'FollowPathDWB.PathAlign.scale',
-        'goal_dist_scale':  'FollowPathDWB.GoalDist.scale',
-        'path_dist_scale':  'FollowPathDWB.PathDist.scale',
-        'obstacle_scale':   'FollowPathDWB.BaseObstacle.scale',
+        'goal_dist_scale': 'FollowPathDWB.GoalDist.scale',
+        'path_dist_scale': 'FollowPathDWB.PathDist.scale',
+        'obstacle_scale': 'FollowPathDWB.BaseObstacle.scale',
     },
     'MPPI': {
-        'max_linear_vel':  'FollowPath.vx_max',
-        'min_linear_vel':  'FollowPath.vx_min',
+        'max_linear_vel': 'FollowPath.vx_max',
+        'min_linear_vel': 'FollowPath.vx_min',
         'max_angular_vel': 'FollowPath.wz_max',
-        'linear_accel':    'FollowPath.ax_max',
-        'angular_accel':   'FollowPath.az_max',
+        'linear_accel': 'FollowPath.ax_max',
+        'angular_accel': 'FollowPath.az_max',
     },
 }
 
@@ -47,53 +47,32 @@ class PlannerController(Node):
         super().__init__('planner_controller')
 
         self.planner = 'MPPI'
-        self.preset  = 1
-        # Tracked so set_raw_params can keep the velocity_smoother in sync
-        # even when only one of the two bounds is being updated.
+        self.preset = 1
         self.current_max_lin = 0.8
         self.current_max_ang = 1.2
 
         pkg = get_package_share_directory('potr_navigation')
         self.shared_yaml = os.path.join(pkg, 'config', 'shared_params.yaml')
-        self.dwb_yaml    = os.path.join(pkg, 'config', 'dwb_params.yaml')
-        self.mppi_yaml   = os.path.join(pkg, 'config', 'mppi_params.yaml')
+        self.dwb_yaml = os.path.join(pkg, 'config', 'dwb_params.yaml')
+        self.mppi_yaml = os.path.join(pkg, 'config', 'mppi_params.yaml')
 
         self.cb = ReentrantCallbackGroup()
 
-        self.set_params_client = self.create_client(
-            SetParameters, '/controller_server/set_parameters',
-            callback_group=self.cb,
-        )
-        self.smoother_params_client = self.create_client(
-            SetParameters, '/velocity_smoother/set_parameters',
-            callback_group=self.cb,
-        )
-        # Latch the most recent shared-name values so subscribers that come
-        # up late still see the current state on their first callback.
+        self.set_params_client = self.create_client(SetParameters, '/controller_server/set_parameters', callback_group=self.cb)
+        self.smoother_params_client = self.create_client(SetParameters, '/velocity_smoother/set_parameters', callback_group=self.cb)
+
         self.latest_shared_values = {}
         latched_qos = QoSProfile(
             depth=1,
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             reliability=QoSReliabilityPolicy.RELIABLE,
         )
-        self.params_pub = self.create_publisher(
-            String, '/potr_navigation/current_planner_params', latched_qos,
-        )
-        # Emit one snapshot immediately so late-joining subscribers render the
-        # current planner/preset layout even before the first service call.
+        self.params_pub = self.create_publisher(String, '/potr_navigation/current_planner_params', latched_qos)
         self.publish_params_snapshot()
-        self.create_service(
-            SwitchPlanner, '/potr_navigation/switch_planner',
-            self.handle_switch_planner, callback_group=self.cb,
-        )
-        self.create_service(
-            SetParamPreset, '/potr_navigation/set_param_preset',
-            self.handle_set_preset, callback_group=self.cb,
-        )
-        self.create_service(
-            SetRawParams, '/potr_navigation/set_raw_params',
-            self.handle_set_raw_params, callback_group=self.cb,
-        )
+
+        self.create_service(SwitchPlanner, '/potr_navigation/switch_planner', self.handle_switch_planner, callback_group=self.cb)
+        self.create_service(SetParamPreset, '/potr_navigation/set_param_preset', self.handle_set_preset, callback_group=self.cb)
+        self.create_service(SetRawParams, '/potr_navigation/set_raw_params', self.handle_set_raw_params, callback_group=self.cb)
 
         self.get_logger().info(f'Planner controller ready (planner={self.planner}, preset={self.preset})')
 
@@ -135,7 +114,8 @@ class PlannerController(Node):
         self.get_logger().info(f'set_raw_params ({self.planner}): {summary}')
         ok, msg = self.send_params(params)
         if not ok:
-            res.success, res.message = ok, msg
+            res.success = ok
+            res.message = msg
             return res
 
         smoother_dirty = False
@@ -158,7 +138,8 @@ class PlannerController(Node):
 
         self.latest_shared_values.update(shared_updates)
         self.publish_params_snapshot()
-        res.success, res.message = True, 'OK'
+        res.success = True
+        res.message = 'OK'
         return res
 
     def apply_params(self):
@@ -183,10 +164,7 @@ class PlannerController(Node):
         try:
             planner_yaml = self.dwb_yaml if planner == 'DWB' else self.mppi_yaml
             with open(planner_yaml) as f:
-                planner_params = (
-                    yaml.safe_load(f)
-                    [preset_key]['controller_server']['ros__parameters'][plugin_ns]
-                )
+                planner_params = yaml.safe_load(f)[preset_key]['controller_server']['ros__parameters'][plugin_ns]
             for k, v in planner_params.items():
                 if k == 'critics':
                     continue  # live critics update crashes the controller
@@ -216,13 +194,11 @@ class PlannerController(Node):
         except Exception as e:
             return False, f'Failed to update smoother params: {e}'
 
-        # Replace rather than update — a preset application is a full reset of
-        # every shared-name param to its preset value.
         self.latest_shared_values = shared_updates
         self.publish_params_snapshot()
         return True, 'OK'
 
-    def send_params(self, params: dict, client=None):
+    def send_params(self, params, client=None):
         if client is None:
             client = self.set_params_client
         if not client.wait_for_service(timeout_sec=5.0):
@@ -255,17 +231,17 @@ class PlannerController(Node):
         self.get_logger().info(f'Applied {len(ros_params)} params ({self.planner}, preset {self.preset})')
         return True, 'OK'
 
-    def publish_params_snapshot(self) -> None:
+    def publish_params_snapshot(self):
         payload = json.dumps({
             'planner': self.planner,
-            'preset':  self.preset,
-            'values':  self.latest_shared_values,
+            'preset': self.preset,
+            'values': self.latest_shared_values,
         })
         msg = String()
         msg.data = payload
         self.params_pub.publish(msg)
 
-    def make_param_value(self, value) -> ParameterValue:
+    def make_param_value(self, value):
         pv = ParameterValue()
         if isinstance(value, bool):
             pv.type = ParameterType.PARAMETER_BOOL
@@ -279,9 +255,6 @@ class PlannerController(Node):
         elif isinstance(value, str):
             pv.type = ParameterType.PARAMETER_STRING
             pv.string_value = value
-        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
-            pv.type = ParameterType.PARAMETER_STRING_ARRAY
-            pv.string_array_value = value
         elif isinstance(value, list) and all(isinstance(v, float) for v in value):
             pv.type = ParameterType.PARAMETER_DOUBLE_ARRAY
             pv.double_array_value = value

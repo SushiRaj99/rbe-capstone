@@ -4,7 +4,6 @@ import copy
 import json
 import math
 import os
-import random
 import time
 from rclpy.node import Node
 from rclpy.action import ActionClient, ActionServer
@@ -14,7 +13,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future
 from nav2_msgs.action import NavigateToPose
-from nav2_msgs.srv import LoadMap
+from nav2_msgs.srv import LoadMap, ClearEntireCostmap
 from geometry_msgs.msg import PoseStamped, Pose2D, Pose
 from tf2_ros import Buffer, TransformListener
 from std_srvs.srv import Trigger
@@ -52,6 +51,7 @@ S_WAITING_FOR_RL    = 'WAITING_FOR_RL'
 S_DONE              = 'DONE'
 
 SETTLE_SECS = 2.0   # seconds to wait after respawn before sending goal
+MAP_SWITCH_EXTRA_SECS = 1.5
 
 
 def decode_nav2_status(status_code: int) -> str:
@@ -71,13 +71,6 @@ class EpisodeRunner(Node):
         self.declare_parameter('map_to_odom_y',  0.0)
         self.declare_parameter('episodes', '')
         self.declare_parameter('rl_mode', False)
-        # Start/goal jitter for domain randomization — off by default because
-        # several goalpoints are already close to obstacles and random offsets
-        # spawn the robot / goal inside walls. Flip `randomize_poses` to true
-        # only on maps where the goal list has enough clearance.
-        self.declare_parameter('randomize_poses', False)
-        self.declare_parameter('jitter_xy',  0.2)   # metres, uniform ± per axis
-        self.declare_parameter('jitter_yaw', 0.15)  # radians, uniform ±
 
         # Nav2 action client and external goal action server
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -101,6 +94,14 @@ class EpisodeRunner(Node):
         self.switch_planner_client = self.create_client(SwitchPlanner,  '/potr_navigation/switch_planner',  callback_group=self.cb_group)
         self.set_preset_client     = self.create_client(SetParamPreset, '/potr_navigation/set_param_preset', callback_group=self.cb_group)
         self.load_map_client       = self.create_client(LoadMap,        '/map_server/load_map',             callback_group=self.cb_group)
+        self.clear_global_costmap_client = self.create_client(
+            ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap',
+            callback_group=self.cb_group,
+        )
+        self.clear_local_costmap_client = self.create_client(
+            ClearEntireCostmap, '/local_costmap/clear_entirely_local_costmap',
+            callback_group=self.cb_group,
+        )
 
         # Publishers
         self.set_pose_pub     = self.create_publisher(Pose2D,          '/simulation/set_pose', 10)
@@ -118,7 +119,6 @@ class EpisodeRunner(Node):
         self.rl_settle_until  = None
         self.rl_nav_status    = None   # set by goal result callback
         self.rl_switch_called = False  # prevents re-entry while waiting for planner switch callback
-        self.rl_active_episode = None  # jittered copy of current episode; reused across respawn/goal
 
         # Action server goal tracking (separate from run loop)
         self.action_nav2_goal_ptr = None
@@ -184,9 +184,7 @@ class EpisodeRunner(Node):
                 self.rl_state = S_SWITCHING_PLANNER
                 self.rl_switch_called = False
                 return
-            # Jitter once per reset and cache so respawn + goal see the same pose.
-            episode = self.jittered_episode(self.rl_episodes[self.rl_episode_index])
-            self.rl_active_episode = episode
+            episode = self.rl_episodes[self.rl_episode_index]
             map_name = episode["map"]
             if map_name != self.rl_current_map:
                 self.rl_state = S_MAP_SWITCHING
@@ -198,7 +196,7 @@ class EpisodeRunner(Node):
 
         elif self.rl_state == S_SETTLING:
             if self.rl_settle_until is not None and self.get_clock().now() >= self.rl_settle_until:
-                episode = self.rl_active_episode
+                episode = self.rl_episodes[self.rl_episode_index]
                 future = self.reset_client.call_async(Trigger.Request())
                 future.add_done_callback(lambda f: self.on_episode_reset_done(f, episode))
                 self.rl_state = S_GOAL_ACTIVE  # block re-entry until goal done
@@ -257,25 +255,23 @@ class EpisodeRunner(Node):
                 self.rl_current_map = map_name
         except Exception as e:
             self.get_logger().error(f'Map switch error: {e}')
-        episode = self.rl_active_episode
+        self.clear_costmaps()
+        episode = self.rl_episodes[self.rl_episode_index]
         self.do_respawn(episode['start'])
-        self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(seconds=SETTLE_SECS)
+        self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(
+            seconds=SETTLE_SECS + MAP_SWITCH_EXTRA_SECS,
+        )
         self.rl_state = S_SETTLING
 
-    def jittered_episode(self, episode: dict) -> dict:
-        if not self.get_parameter('randomize_poses').value:
-            return episode
-        jxy  = float(self.get_parameter('jitter_xy').value)
-        jyaw = float(self.get_parameter('jitter_yaw').value)
-        if jxy <= 0.0 and jyaw <= 0.0:
-            return episode
-        out = copy.deepcopy(episode)
-        for key in ('start', 'goal'):
-            pose = out[key]
-            pose['x']   = pose['x']            + random.uniform(-jxy,  jxy)
-            pose['y']   = pose['y']            + random.uniform(-jxy,  jxy)
-            pose['yaw'] = pose.get('yaw', 0.0) + random.uniform(-jyaw, jyaw)
-        return out
+    def clear_costmaps(self) -> None:
+        for client, label in (
+            (self.clear_global_costmap_client, 'global'),
+            (self.clear_local_costmap_client,  'local'),
+        ):
+            if not client.service_is_ready():
+                self.get_logger().warn(f'{label} costmap clear service not ready, skipping')
+                continue
+            client.call_async(ClearEntireCostmap.Request())
 
     def do_respawn(self, start: dict) -> None:
         # start coordinates are in map frame; convert to odom frame
@@ -343,7 +339,7 @@ class EpisodeRunner(Node):
             self.rl_nav_status = 'ERROR'
 
     def on_episode_metrics_done(self, future) -> None:
-        episode  = self.rl_active_episode or self.rl_episodes[self.rl_episode_index]
+        episode  = self.rl_episodes[self.rl_episode_index]
         nav_stat = self.rl_nav_status
         self.rl_nav_status = None
         try:
