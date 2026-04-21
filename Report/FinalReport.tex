@@ -185,23 +185,59 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     specific path planning algorithm, two design options initially were explored for RL architecture of the states, a one-time parameter tune, or a
     dynamic parameter tuning. It was decided that the implementation and expected results of a dynamic RL application would be favorable and feasible
     within the scope of this project. With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters
-    throughout the navigation process where the state would includes the robot's current pose, velocity, distance from the goal, and information
-    derived from on-board sensor data (e.g. downsampled LiDAR returns or costmap). The state vector is augmented to include prior poses and future
-    waypoints from the global planner to provide more context for decision making. RL actions include presets for the local planner parameters (e.g.
-    increase clearance by 0.1m, decrease path smoothness by 0.05, etc.).Finally, the reward function resembles a standard direct function with a large
-    positive reward for reaching the goal, a large negative reward for collisions, and small negative rewards for all other movements to encourage
-    finding the shortest path to the goal.
+    throughout the navigation process where the state would includes the robot's current pose, velocity, distance from the goal, the obstacle cost of the surrounding environment. The actions continously adjust the parameters (continuous mode) at each timestep. The reward function is be designed to encourage efficient, smooth, and safe navigation by providing positive rewards for progress towards the goal and negative rewards for collisions, long travel times, and time spent in close proximity to obstacles. The goal of these rewards is to encourage the agent to learn how to guide the robot through crowded environments as smoothly and quickly as possible.
 
     % Depending on how the "Performance Evaluation" builds out (see respective note in that sub-sub section), the gymnasium environment could either be introduced in it's own subsubsection here, or it could be introduced within the "Training Architecture" section below. Either way, it should be talked about.
 
         \subsubsection{Training Architecture}
-        %TODO: Sushant, talk about how train.py works 
+        Training is driven by the Stable-Baselines3 (SB3) library, which interfaces with the simulation through a custom
+        Gymnasium environment (set up in env.py). SB3 is widely used for training RL agents and provides a variety of algorithms and utilities for training and evaluation, but one challenge that we had to consider is that it is designed for synchronous environments. This project heavily relies on ROS2, which is fundamentally an asynchronous setup with multiple nodes communicating through topics and services. The main training loop needs to block and wait for new observations and rewards from the ROS2 environment, but also needs to be able to control the asynchronous ROS2 nodes and services to set up and run each episode. To bridge this gap, a state machine-like architecture was implemented to allow the main training loop to operate synchronously with each episode. This was achieved by setting up a thread queue to put the main training loop in charge of the episode flow, where the loop listens to the metrics from a ROS2 topic, and then issues service calls to control the episode flow (start episode, switch planners, update parameters) based on those metrics.
+
+        A per-step exponential moving average (EMA) with $\alpha=0.3$ is set up to smooth the raw policy output before it is sent to the navigation stack. The smoothed action vector is appended to the observation so the policy can reason about what parameters are currently active. This is important because the reward function needs to encourage smooth parameter changes, and the policy needs to learn how drastic parameter changes can lead to negative rewards. The EMA helps to mitigate this issue by smoothing out the policy's output, but it also means that the policy needs to learn how its actions will be smoothed over time.
+
+        Checkpoints are saved every 2000 environment steps using SB3's \texttt{CheckpointCallback}. The replay buffer is saved
+        alongside the policy weights so that training can be resumed without discarding previously collected transitions. If a checkpoint
+        is resumed but its replay buffer file is missing, the \texttt{learning\_starts} threshold is extended by an additional 500 steps
+        to prevent gradient updates on an empty buffer.
 
         \subsubsection{Reward Function}
-        %TODO: Sushant
+        The reward function is built around five per-step terms and two terminal terms. Each term targets one of the four navigation
+        quality criteria: efficiency, smoothness, accuracy, and clearance.
+
+        The primary signal is a progress reward proportional to the reduction in distance to the goal each timestep, which gives the
+        agent a continuous incentive to move forward rather than waiting for a sparse goal signal at the end of the episode. Three
+        penalty terms counterbalance this: a small penalty for deviating laterally from the global plan encourages the agent to stay
+        on the intended path; a penalty on angular velocity discourages unnecessary spinning; and a graduated proximity penalty
+        activates when the planned path ahead of the robot enters an inflated obstacle region on the costmap, increasing as the path
+        gets closer to an obstacle. Unlike a binary collision flag, the graduated penalty provides a smooth signal that the agent can
+        learn from without being destabilized by sudden large negative rewards. A flat time penalty is also applied every timestep
+        regardless of other conditions, making overall navigation speed the dominant optimization pressure.
+
+        At the end of each episode, a goal bonus of $+100$ is awarded if the robot successfully reaches its destination, and a failure
+        penalty of $-50$ is applied if the episode ends without reaching the goal. The larger bonus relative to the penalty is
+        intentional---it keeps the agent willing to attempt difficult routes rather than playing it safe and timing out.
 
         \subsubsection{Training and Evaluation Tools}
-        %TODO: Sushant, talk about the parameter visualizer
+        To support debugging during both training and evaluation, a live parameter visualization tool was
+        developed. It subscribes to a topic containing the Nav2 parameters being tuned and renders each tunable parameter as
+        a horizontal bar dial in a real-time matplotlib window, updating at 10\,Hz. Each dial shows the full valid range for that parameter,
+        a tick mark at the preset baseline value, and a colored fill indicating the current value --- blue if the agent has pushed the
+        parameter above baseline and orange if below. An example of the visualization is shown in Figure~\ref{fig:param_viz}.
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=\columnwidth]{./param_viz.png}
+            \caption{Live parameter dial visualization during a training run. Each bar shows the current value relative to the preset
+            baseline (vertical tick) and the full tunable range. Blue indicates the agent has pushed a parameter above baseline;
+            orange indicates below.}
+            \label{fig:param_viz}
+        \end{figure}
+
+        The tool proved useful for catching two failure modes that were not obvious from reward curves alone. In one case, the agent
+        collapsed all parameters toward one extreme of their range and kept them there, which the dials made immediately apparent. In
+        another case, the parameters were not changing at all between steps, which pointed to a bug in how actions were being applied
+        rather than a training issue. Having a direct view of what the agent was actually doing to the planner at each step made these
+        problems straightforward to diagnose.
    
         \subsubsection{Performance Evaluation}
         In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
