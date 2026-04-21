@@ -4,5 +4,8 @@
         <General>
             <NetworkInterfaceAddress>lo</NetworkInterfaceAddress>
         </General>
+        <Discovery>
+            <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+        </Discovery>
     </Domain>
 </CycloneDDS>

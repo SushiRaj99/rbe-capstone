@@ -1,0 +1,69 @@
+# All positions are in map frame.
+# start: where the robot spawns at the beginning of each episode
+# goal:  navigation target for that episode
+# map:   map to load (optional — falls back to default_map param)
+#
+# Points collected via ros2 topic echo /clicked_point in RViz (map: dense_clutter).
+# Episodes mix these points as both starts and goals so the agent sees diverse
+# traversals rather than always launching from the same home position.
+
+episode_runner:
+  ros__parameters:
+    default_map: 'dense_clutter'
+    map_to_odom_x: -4.0    # matches the map->odom static TF in potr_robot.launch.py
+    map_to_odom_y:  0.0
+    rl_mode: true
+    episodes: >
+      [
+        {"map": "dense_clutter", "start": {"x": -5.75, "y": -6.75, "yaw": 0.0}, "goal": {"goal_id": "ep_04", "x":  4.65, "y":  3.20, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_36", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -6.47, "y":  4.74, "yaw": 0.0}, "goal": {"goal_id": "ep_05", "x":  5.34, "y": -6.58, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  5.34, "y": -6.58, "yaw": 0.0}, "goal": {"goal_id": "ep_06", "x": -6.47, "y":  4.74, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -4.00, "y":  0.00, "yaw": 0.0}, "goal": {"goal_id": "ep_47", "x":  4.27, "y": -8.70, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -4.00, "y":  0.00, "yaw": 0.0}, "goal": {"goal_id": "ep_48", "x": -11.37, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -4.66, "y":  3.64, "yaw": 0.0}, "goal": {"goal_id": "ep_07", "x":  2.95, "y": -4.68, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  1.06, "y":  4.63, "yaw": 0.0}, "goal": {"goal_id": "ep_09", "x": -5.75, "y": -6.75, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  1.11, "y": -5.14, "yaw": 0.0}, "goal": {"goal_id": "ep_10", "x": -4.66, "y":  3.64, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_35", "x":  6.80, "y":  8.67, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_36", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  3.16, "y": -0.63, "yaw": 0.0}, "goal": {"goal_id": "ep_11", "x": -6.47, "y":  4.74, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  0.99, "y": -4.81, "yaw": 0.0}, "goal": {"goal_id": "ep_12", "x":  4.65, "y":  3.20, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -6.78, "y": -1.83, "yaw": 0.0}, "goal": {"goal_id": "ep_13", "x":  4.65, "y":  3.20, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  2.10, "y": -6.08, "yaw": 0.0}, "goal": {"goal_id": "ep_57", "x": -11.37, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  4.14, "y":  6.50, "yaw": 0.0}, "goal": {"goal_id": "ep_58", "x": -2.04, "y": -7.39, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -5.07, "y":  3.78, "yaw": 0.0}, "goal": {"goal_id": "ep_14", "x":  5.34, "y": -6.58, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  1.67, "y":  0.11, "yaw": 0.0}, "goal": {"goal_id": "ep_16", "x": -6.47, "y":  4.74, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -5.98, "y": -6.67, "yaw": 0.0}, "goal": {"goal_id": "ep_17", "x":  5.97, "y":  5.86, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -2.04, "y": -7.39, "yaw": 0.0}, "goal": {"goal_id": "ep_54", "x": -1.92, "y":  7.39, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -1.92, "y":  7.39, "yaw": 0.0}, "goal": {"goal_id": "ep_55", "x": -8.12, "y": -8.05, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  3.13, "y": -9.71, "yaw": 0.0}, "goal": {"goal_id": "ep_56", "x": -5.62, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  5.97, "y":  5.86, "yaw": 0.0}, "goal": {"goal_id": "ep_18", "x": -6.68, "y": -3.44, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  2.40, "y": -2.02, "yaw": 0.0}, "goal": {"goal_id": "ep_20", "x": -6.08, "y": -0.57, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -2.30, "y": -4.80, "yaw": 0.0}, "goal": {"goal_id": "ep_21", "x":  4.65, "y":  3.20, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -6.47, "y":  4.74, "yaw": 0.0}, "goal": {"goal_id": "ep_22", "x":  2.40, "y": -2.02, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  0.72, "y": -6.51, "yaw": 0.0}, "goal": {"goal_id": "ep_37", "x":  0.72, "y":  8.07, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  4.96, "y": -7.82, "yaw": 0.0}, "goal": {"goal_id": "ep_38", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  6.80, "y":  8.67, "yaw": 0.0}, "goal": {"goal_id": "ep_39", "x":  4.96, "y": -7.82, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -6.08, "y": -0.57, "yaw": 0.0}, "goal": {"goal_id": "ep_23", "x":  5.34, "y": -6.58, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -7.66, "y":  0.75, "yaw": 0.0}, "goal": {"goal_id": "ep_40", "x":  3.84, "y": -3.73, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.45, "y":  8.22, "yaw": 0.0}, "goal": {"goal_id": "ep_41", "x":  0.72, "y": -6.51, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -5.30, "y":  2.88, "yaw": 0.0}, "goal": {"goal_id": "ep_43", "x":  6.80, "y":  8.67, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -1.40, "y":  3.40, "yaw": 0.0}, "goal": {"goal_id": "ep_44", "x":  4.96, "y": -7.82, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -11.37, "y":  8.41, "yaw": 0.0}, "goal": {"goal_id": "ep_51", "x":  3.13, "y": -9.71, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x":  4.27, "y": -8.70, "yaw": 0.0}, "goal": {"goal_id": "ep_52", "x": -11.37, "y":  8.41, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.15, "y":  0.40, "yaw": 0.0}, "goal": {"goal_id": "ep_45", "x":  0.72, "y":  8.07, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  0.72, "y":  8.07, "yaw": 0.0}, "goal": {"goal_id": "ep_46", "x": -7.66, "y":  0.75, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  3.84, "y": -3.73, "yaw": 0.0}, "goal": {"goal_id": "ep_42", "x": -3.45, "y":  8.22, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -1.50, "y": -4.56, "yaw": 0.0}, "goal": {"goal_id": "ep_25", "x":  5.97, "y":  5.86, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -5.98, "y": -6.67, "yaw": 0.0}, "goal": {"goal_id": "ep_26", "x": -1.51, "y":  5.90, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  4.65, "y":  3.20, "yaw": 0.0}, "goal": {"goal_id": "ep_27", "x": -6.47, "y":  4.74, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -1.51, "y":  5.90, "yaw": 0.0}, "goal": {"goal_id": "ep_28", "x":  2.95, "y": -4.68, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -4.00, "y":  0.00, "yaw": 0.0}, "goal": {"goal_id": "ep_49", "x":  4.14, "y":  6.50, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -8.12, "y": -8.05, "yaw": 0.0}, "goal": {"goal_id": "ep_50", "x":  4.14, "y":  6.50, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "mixed", "start": {"x": -5.62, "y":  8.41, "yaw": 0.0}, "goal": {"goal_id": "ep_53", "x":  2.10, "y": -6.08, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -1.51, "y":  5.90, "yaw": 0.0}, "goal": {"goal_id": "ep_29", "x":  5.34, "y": -6.58, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -6.68, "y": -3.44, "yaw": 0.0}, "goal": {"goal_id": "ep_31", "x":  5.34, "y": -6.58, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  3.16, "y": -0.63, "yaw": 0.0}, "goal": {"goal_id": "ep_32", "x":  5.97, "y":  5.86, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x": -2.30, "y": -4.80, "yaw": 0.0}, "goal": {"goal_id": "ep_33", "x": -1.51, "y":  5.90, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "dense_clutter", "start": {"x":  1.67, "y":  0.11, "yaw": 0.0}, "goal": {"goal_id": "ep_34", "x": -6.08, "y": -0.57, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}}
+      ]

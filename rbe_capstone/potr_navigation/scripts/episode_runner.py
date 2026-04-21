@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import rclpy
-import time, math, copy, json, os
+import copy
+import json
+import math
+import os
+import time
 from rclpy.node import Node
 from rclpy.action import ActionClient, ActionServer
 from rclpy.action.client import ClientGoalHandle
@@ -9,11 +13,18 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future
 from nav2_msgs.action import NavigateToPose
-from nav2_msgs.srv import LoadMap
-from geometry_msgs.msg import PoseStamped, Pose2D
+from nav2_msgs.srv import LoadMap, ClearEntireCostmap
+from geometry_msgs.msg import PoseStamped, Pose2D, Pose
 from tf2_ros import Buffer, TransformListener
 from std_srvs.srv import Trigger
 from simulation_launch.action import SendGoalToNav2
+
+
+def quat_to_yaw(q) -> float:
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
 from lifecycle_msgs.srv import GetState
 from potr_navigation.srv import GetMetrics, SwitchPlanner, SetParamPreset
 from potr_navigation.msg import EpisodeMetrics
@@ -21,7 +32,6 @@ from ament_index_python.packages import get_package_share_directory
 
 from typing import Tuple, Optional
 
-# Automated run configs: each run uses a different planner + preset
 RUN_CONFIGS = [
     ('DWB',  1),
     ('DWB',  2),
@@ -37,9 +47,11 @@ S_MAP_SWITCHING     = 'MAP_SWITCHING'
 S_SETTLING          = 'SETTLING'
 S_GOAL_ACTIVE       = 'GOAL_ACTIVE'
 S_GETTING_METRICS   = 'GETTING_METRICS'
+S_WAITING_FOR_RL    = 'WAITING_FOR_RL'
 S_DONE              = 'DONE'
 
 SETTLE_SECS = 2.0   # seconds to wait after respawn before sending goal
+MAP_SWITCH_EXTRA_SECS = 1.5
 
 
 def decode_nav2_status(status_code: int) -> str:
@@ -55,16 +67,15 @@ class EpisodeRunner(Node):
         super().__init__('episode_runner')
         self.cb_group = ReentrantCallbackGroup()
 
-        self.declare_parameter('default_map', 'mixed')
         self.declare_parameter('map_to_odom_x', -4.0)   # map->odom static TF x translation
         self.declare_parameter('map_to_odom_y',  0.0)
         self.declare_parameter('episodes', '')
+        self.declare_parameter('rl_mode', False)
 
-        # Nav2 action client (direct NavigateToPose for run loop)
+        # Nav2 action client and external goal action server
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.nav_client.wait_for_server()
 
-        # Action server for manual / external goal sending
         self.action_server = ActionServer(
             self, SendGoalToNav2, 'send_goal_to_nav2',
             self.manage_send_goal, callback_group=self.cb_group
@@ -76,23 +87,30 @@ class EpisodeRunner(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Service clients
-        self.nav2_state_client   = self.create_client(GetState,       '/bt_navigator/get_state')
-        self.reset_client        = self.create_client(Trigger,        '/potr_navigation/reset_metrics',  callback_group=self.cb_group)
-        self.metrics_client      = self.create_client(GetMetrics,     '/potr_navigation/get_metrics',    callback_group=self.cb_group)
-        self.switch_planner_client = self.create_client(SwitchPlanner,  '/potr_navigation/switch_planner', callback_group=self.cb_group)
-        self.set_preset_client   = self.create_client(SetParamPreset, '/potr_navigation/set_param_preset', callback_group=self.cb_group)
-        self.load_map_client     = self.create_client(LoadMap,        '/map_server/load_map',            callback_group=self.cb_group)
+        # Clients
+        self.nav2_state_client     = self.create_client(GetState,       '/bt_navigator/get_state')
+        self.reset_client          = self.create_client(Trigger,        '/potr_navigation/reset_metrics',   callback_group=self.cb_group)
+        self.metrics_client        = self.create_client(GetMetrics,     '/potr_navigation/get_metrics',     callback_group=self.cb_group)
+        self.switch_planner_client = self.create_client(SwitchPlanner,  '/potr_navigation/switch_planner',  callback_group=self.cb_group)
+        self.set_preset_client     = self.create_client(SetParamPreset, '/potr_navigation/set_param_preset', callback_group=self.cb_group)
+        self.load_map_client       = self.create_client(LoadMap,        '/map_server/load_map',             callback_group=self.cb_group)
+        self.clear_global_costmap_client = self.create_client(
+            ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap',
+            callback_group=self.cb_group,
+        )
+        self.clear_local_costmap_client = self.create_client(
+            ClearEntireCostmap, '/local_costmap/clear_entirely_local_costmap',
+            callback_group=self.cb_group,
+        )
 
-        # Publisher for robot respawn
-        self.set_pose_pub = self.create_publisher(Pose2D, '/simulation/set_pose', 10)
-        # Publisher for episode metrics
-        self.metrics_pub  = self.create_publisher(EpisodeMetrics, '/potr_navigation/episode_metrics', 10)
-
-        # Nav2 active flag (polled by timer)
-        self.nav2_active = False
+        # Publishers
+        self.set_pose_pub     = self.create_publisher(Pose2D,          '/simulation/set_pose', 10)
+        self.metrics_pub      = self.create_publisher(EpisodeMetrics,  '/potr_navigation/episode_metrics', 10)
+        self.current_goal_pub = self.create_publisher(Pose,            '/potr_navigation/current_goal', 10)  # read by metrics_tracker
+        self.create_service(Trigger, '/potr_navigation/start_episode', self.handle_start_episode, callback_group=self.cb_group)
 
         # Run loop state
+        self.nav2_active      = False
         self.rl_state         = S_INIT
         self.rl_run_index     = 0
         self.rl_episode_index = 0
@@ -129,15 +147,25 @@ class EpisodeRunner(Node):
                 self.get_logger().error(f'Failed to parse episodes JSON: {e}')
                 self.rl_state = S_DONE
                 return
-            self.get_logger().info(
-                f'Run loop starting: {len(RUN_CONFIGS)} configs x {len(self.rl_episodes)} episodes'
-            )
-            self.rl_state = S_SWITCHING_PLANNER
-            self.rl_switch_called = False
+            rl_mode = self.get_parameter('rl_mode').value
+            if rl_mode:
+                self.get_logger().info(
+                    f'RL mode: {len(self.rl_episodes)} episodes, waiting for start_episode calls'
+                )
+                self.rl_state = S_WAITING_FOR_RL
+            else:
+                self.get_logger().info(
+                    f'Run loop starting: {len(RUN_CONFIGS)} configs x {len(self.rl_episodes)} episodes'
+                )
+                self.rl_state = S_SWITCHING_PLANNER
+                self.rl_switch_called = False
+
+        elif self.rl_state == S_WAITING_FOR_RL:
+            pass
 
         elif self.rl_state == S_SWITCHING_PLANNER:
             if self.rl_switch_called:
-                return  # waiting for planner switch callbacks
+                return
             if (not self.switch_planner_client.service_is_ready() or
                     not self.set_preset_client.service_is_ready()):
                 self.get_logger().info('Waiting for planner controller services...')
@@ -157,7 +185,7 @@ class EpisodeRunner(Node):
                 self.rl_switch_called = False
                 return
             episode = self.rl_episodes[self.rl_episode_index]
-            map_name = episode.get('map', self.get_parameter('default_map').value)
+            map_name = episode["map"]
             if map_name != self.rl_current_map:
                 self.rl_state = S_MAP_SWITCHING
                 self.do_map_switch(map_name)
@@ -227,10 +255,23 @@ class EpisodeRunner(Node):
                 self.rl_current_map = map_name
         except Exception as e:
             self.get_logger().error(f'Map switch error: {e}')
+        self.clear_costmaps()
         episode = self.rl_episodes[self.rl_episode_index]
         self.do_respawn(episode['start'])
-        self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(seconds=SETTLE_SECS)
+        self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(
+            seconds=SETTLE_SECS + MAP_SWITCH_EXTRA_SECS,
+        )
         self.rl_state = S_SETTLING
+
+    def clear_costmaps(self) -> None:
+        for client, label in (
+            (self.clear_global_costmap_client, 'global'),
+            (self.clear_local_costmap_client,  'local'),
+        ):
+            if not client.service_is_ready():
+                self.get_logger().warn(f'{label} costmap clear service not ready, skipping')
+                continue
+            client.call_async(ClearEntireCostmap.Request())
 
     def do_respawn(self, start: dict) -> None:
         # start coordinates are in map frame; convert to odom frame
@@ -255,6 +296,15 @@ class EpisodeRunner(Node):
 
     def send_episode_goal(self, goal: dict) -> None:
         self.get_logger().info(f'Sending goal: {goal["goal_id"]}')
+
+        # Publish goal so metrics_tracker can compute distance/heading error
+        goal_pose = Pose()
+        goal_pose.position.x = goal['x']
+        goal_pose.position.y = goal['y']
+        goal_pose.orientation.z = math.sin(goal['yaw'] / 2.0)
+        goal_pose.orientation.w = math.cos(goal['yaw'] / 2.0)
+        self.current_goal_pub.publish(goal_pose)
+
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = PoseStamped()
         goal_msg.pose.header.frame_id = 'map'
@@ -298,7 +348,7 @@ class EpisodeRunner(Node):
             planner, preset = RUN_CONFIGS[self.rl_run_index]
             goal     = episode['goal']
             start    = episode['start']
-            map_name = episode.get('map', self.get_parameter('default_map').value)
+            map_name = episode['map']
 
             m.planner      = planner
             m.preset       = preset
@@ -316,8 +366,29 @@ class EpisodeRunner(Node):
             self.metrics_pub.publish(m)
         except Exception as e:
             self.get_logger().error(f'get_metrics failed: {e}')
-        self.rl_episode_index += 1
+        rl_mode = self.get_parameter('rl_mode').value
+        if rl_mode:
+            # Wrap episode index so training can run indefinitely
+            self.rl_episode_index = (self.rl_episode_index + 1) % len(self.rl_episodes)
+            self.rl_state = S_WAITING_FOR_RL
+        else:
+            self.rl_episode_index += 1
+            self.rl_state = S_START_EPISODE
+
+    def handle_start_episode(self, req, res):
+        if self.rl_state != S_WAITING_FOR_RL:
+            res.success = False
+            res.message = f'Not waiting for RL trigger (state={self.rl_state})'
+            return res
+        if not self.rl_episodes:
+            res.success = False
+            res.message = 'No episodes loaded yet'
+            return res
+        self.get_logger().info(f'RL trigger: starting episode {self.rl_episode_index}')
         self.rl_state = S_START_EPISODE
+        res.success = True
+        res.message = f'Starting episode {self.rl_episode_index}'
+        return res
 
     def check_nav2_active(self) -> None:
         if not self.nav2_state_client.service_is_ready():
@@ -452,11 +523,7 @@ class EpisodeRunner(Node):
             curr_tf = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
             curr_x = curr_tf.transform.translation.x
             curr_y = curr_tf.transform.translation.y
-            curr_q = curr_tf.transform.rotation
-            curr_yaw = math.atan2(
-                2.0 * (curr_q.w * curr_q.z + curr_q.x * curr_q.y),
-                1.0 - 2.0 * (curr_q.y * curr_q.y + curr_q.z * curr_q.z)
-            )
+            curr_yaw = quat_to_yaw(curr_tf.transform.rotation)
             xy_error = math.sqrt((curr_x - self.x_goal)**2 + (curr_y - self.y_goal)**2)
             yaw_error = abs(((curr_yaw - self.yaw_goal) + math.pi) % (2 * math.pi) - math.pi)
         except Exception as e:

@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -40,16 +41,15 @@ def generate_launch_description():
         PythonExpression(["'", LaunchConfiguration('map_name'), "' + '.yaml'"]),
     ])
 
-    goal_config_path = PathJoinSubstitution([
-        FindPackageShare('simulation_launch'),
-        'config',
-        'goalpoints_episode.yaml',
-    ])
     goal_config_arg = DeclareLaunchArgument(
         'goal_config',
-        default_value=goal_config_path,
-        description='Goal point definition (path to YAML or dictionary of parameters)',
+        description='Goal config name (without .yaml) in simulation_launch/config/',
     )
+    goal_config = PathJoinSubstitution([
+        FindPackageShare('simulation_launch'),
+        'config',
+        PythonExpression(["'", LaunchConfiguration('goal_config'), "' + '.yaml'"]),
+    ])
 
     use_sim_time = {'use_sim_time': True}
 
@@ -146,7 +146,7 @@ def generate_launch_description():
             executable='episode_runner',
             name='episode_runner',
             output='screen',
-            parameters=[goal_config_path, use_sim_time],
+            parameters=[ParameterFile(goal_config, allow_substs=True), use_sim_time],
         ),
 
         # Metrics tracker

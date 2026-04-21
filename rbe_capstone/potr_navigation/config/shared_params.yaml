@@ -3,15 +3,15 @@
 # Preset 2 biases toward Efficiency (faster motion).
 
 preset_1:  # Smooth
-  max_linear_vel:   0.5   # m/s
+  max_linear_vel:   0.8   # m/s
   min_linear_vel:   0.0   # m/s
-  max_angular_vel:  0.8   # rad/s
+  max_angular_vel:  1.2   # rad/s
   linear_accel:     1.5   # m/s^2
   angular_accel:    2.0   # rad/s^2
 
 preset_2:  # Efficient
-  max_linear_vel:   1.0   # m/s
+  max_linear_vel:   1.5   # m/s
   min_linear_vel:   0.0   # m/s
-  max_angular_vel:  1.5   # rad/s
+  max_angular_vel:  2.0   # rad/s
   linear_accel:     2.5   # m/s^2
   angular_accel:    3.0   # rad/s^2

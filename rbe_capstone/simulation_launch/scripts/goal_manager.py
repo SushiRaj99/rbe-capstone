@@ -17,6 +17,13 @@ import time, math, copy
 from typing import Tuple, Optional
 
 
+def quat_to_yaw(q) -> float:
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
+
+
 # Helper function to map action_msgs/GoalStatus enum to associated string (defined in action_msgs/msg/GoalStatus.msg):
 def decode_nav2_status(status_code: int) -> str:
     decoder = {
@@ -223,11 +230,7 @@ class GoalManager(Node):
             )
             curr_x = curr_tf.transform.translation.x
             curr_y = curr_tf.transform.translation.y
-            curr_q = curr_tf.transform.rotation
-            curr_yaw = math.atan2(
-                2.0 * (curr_q.w * curr_q.z + curr_q.x * curr_q.y),
-                1.0 - 2.0 * (curr_q.y * curr_q.y + curr_q.z * curr_q.z)
-            )
+            curr_yaw = quat_to_yaw(curr_tf.transform.rotation)
             xy_error = math.sqrt((curr_x - self.x_goal)**2 + (curr_y - self.y_goal)**2)
             yaw_error = abs(
                 ((curr_yaw - self.yaw_goal) + math.pi) % (2*math.pi) - math.pi  # express error within range of -pi to pi

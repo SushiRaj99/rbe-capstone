@@ -6,9 +6,11 @@ find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EpisodeMetrics.msg"
+  "msg/StepMetrics.msg"
   "srv/SwitchPlanner.srv"
   "srv/SetParamPreset.srv"
   "srv/GetMetrics.srv"
+  "srv/SetRawParams.srv"
 )
 
 ament_export_dependencies(rosidl_default_runtime)
@@ -33,6 +35,12 @@ install(PROGRAMS
   scripts/episode_runner.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME episode_runner
+)
+
+install(PROGRAMS
+  scripts/param_dial_viz.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME param_dial_viz
 )
 
 ament_package()

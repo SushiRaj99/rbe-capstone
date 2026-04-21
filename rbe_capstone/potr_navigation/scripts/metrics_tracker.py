@@ -7,9 +7,19 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Pose
 from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformListener
 from potr_navigation.srv import GetMetrics
-from potr_navigation.msg import EpisodeMetrics
+from potr_navigation.msg import EpisodeMetrics, StepMetrics
+
+
+def quat_to_yaw(q) -> float:
+    """Extract yaw from a geometry_msgs Quaternion."""
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
 
 
 class MetricsTracker(Node):
@@ -17,19 +27,30 @@ class MetricsTracker(Node):
         super().__init__('metrics_tracker')
         self.cb = ReentrantCallbackGroup()
         self.current_plan = []
-        self.costmap = None
+        self.costmap = None          # /local_costmap/costmap  — odom frame, 3×3m rolling, 5Hz
+        self.global_costmap = None   # /global_costmap/costmap — map frame, full map, 1Hz
+        self.current_goal = None
+        self.last_clearance = 0.0
+        self.last_path_dev = 0.0
+        self.last_collision = False
         self.reset_accumulators()
 
-        self.create_subscription(Odometry,      '/odom',                   self.odom_cb,     10, callback_group=self.cb)
-        self.create_subscription(LaserScan,     '/scan',                   self.scan_cb,     10, callback_group=self.cb)
-        self.create_subscription(Path,          '/plan',                   self.plan_cb,     10, callback_group=self.cb)
-        self.create_subscription(OccupancyGrid, '/local_costmap/costmap',  self.costmap_cb,   1, callback_group=self.cb)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.create_subscription(Odometry,      '/odom',                          self.odom_cb,     10, callback_group=self.cb)
+        self.create_subscription(LaserScan,     '/scan',                          self.scan_cb,     10, callback_group=self.cb)
+        self.create_subscription(Path,          '/plan',                          self.plan_cb,     10, callback_group=self.cb)
+        self.create_subscription(OccupancyGrid, '/local_costmap/costmap',         self.costmap_cb,        1, callback_group=self.cb)
+        self.create_subscription(OccupancyGrid, '/global_costmap/costmap',        self.global_costmap_cb, 1, callback_group=self.cb)
+        self.create_subscription(Pose,          '/potr_navigation/current_goal',  self.goal_cb,     10, callback_group=self.cb)
 
         self.create_service(Trigger,    '/potr_navigation/reset_metrics', self.handle_reset, callback_group=self.cb)
         self.create_service(GetMetrics, '/potr_navigation/get_metrics',   self.handle_get,   callback_group=self.cb)
 
-        self.get_logger().info('Metrics tracker ready')
+        self.step_pub = self.create_publisher(StepMetrics, '/potr_navigation/step_metrics', 10)
 
+        self.get_logger().info('Metrics tracker ready')
 
     def reset_accumulators(self):
         self.start_time    = time.monotonic()
@@ -38,50 +59,142 @@ class MetricsTracker(Node):
         self.path_devs     = []
         self.last_pos      = None
         self.collision_count = 0
+        # Drop stale plan from last episode
+        self.current_plan  = []
+        self.last_path_dev = 0.0
 
+        # Welford running stats: (n, mean, M2)
         self.spd_n, self.spd_mean, self.spd_M2 = 0, 0.0, 0.0
         self.hdg_n, self.hdg_mean, self.hdg_M2 = 0, 0.0, 0.0
 
     def odom_cb(self, msg):
-        x = msg.pose.pose.position.x
-        y = msg.pose.pose.position.y
+        # 1. Pose in odom frame (straight from the message)
+        odom_x = msg.pose.pose.position.x
+        odom_y = msg.pose.pose.position.y
+        yaw    = quat_to_yaw(msg.pose.pose.orientation)
 
-        # Distance
+        # 2. Pose in map frame — plan and goal both live in map
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            x = t.transform.translation.x
+            y = t.transform.translation.y
+        except Exception:
+            # TF not ready — fall back to odom so metrics don't go NaN
+            x, y = odom_x, odom_y
+
+        # 3. Accumulate distance travelled (odom diffs — TF jitters too much)
         if self.last_pos is not None:
-            dx = x - self.last_pos[0]
-            dy = y - self.last_pos[1]
+            dx = odom_x - self.last_pos[0]
+            dy = odom_y - self.last_pos[1]
             self.total_dist += math.sqrt(dx * dx + dy * dy)
-        self.last_pos = (x, y)
+        self.last_pos = (odom_x, odom_y)
 
-        # Collision detection — lethal cost in robot footprint cell
+        # 4. Collision check against local costmap (odom frame)
+        collision = False
         if self.costmap is not None:
-            if get_costmap_cost(x, y, self.costmap) >= 100:
+            if get_costmap_cost(odom_x, odom_y, self.costmap) >= 100:
                 self.collision_count += 1
+                collision = True
+        self.last_collision = collision
 
-        # Speed (magnitude of linear velocity)
+        # 5. Speed + heading-rate running stats (Welford)
         vx = msg.twist.twist.linear.x
         vy = msg.twist.twist.linear.y
         speed = math.sqrt(vx * vx + vy * vy)
         self.spd_n, self.spd_mean, self.spd_M2 = welford(
             self.spd_n, self.spd_mean, self.spd_M2, speed
         )
-
-        # Angular rate magnitude
         wz = abs(msg.twist.twist.angular.z)
         self.hdg_n, self.hdg_mean, self.hdg_M2 = welford(
             self.hdg_n, self.hdg_mean, self.hdg_M2, wz
         )
 
-        # Path deviation
+        # 6. Lateral deviation from the global plan
+        path_dev = 0.0
         if len(self.current_plan) >= 2:
             dev = point_to_path_dist(x, y, self.current_plan)
             if dev is not None:
                 self.path_devs.append(dev)
+                path_dev = dev
+        self.last_path_dev = path_dev
+
+        # 7. Distance + heading error to goal
+        dist_to_goal = 0.0
+        heading_err  = 0.0
+        if self.current_goal is not None:
+            gx = self.current_goal.position.x
+            gy = self.current_goal.position.y
+            dist_to_goal = math.sqrt((gx - x) ** 2 + (gy - y) ** 2)
+            bearing = math.atan2(gy - y, gx - x)
+            heading_err = ((bearing - yaw) + math.pi) % (2 * math.pi) - math.pi
+
+        # 8. Upcoming path-cost windows (near / mid / far)
+        cost_near, cost_mid, cost_far = self.compute_path_costs(x, y)
+
+        # 9. Publish StepMetrics for the RL env
+        s = StepMetrics()
+        s.distance_to_goal      = dist_to_goal
+        s.heading_error_to_goal = heading_err
+        s.linear_velocity       = speed
+        s.angular_velocity      = wz
+        s.clearance             = self.last_clearance
+        s.path_deviation        = path_dev
+        s.collision             = collision
+        if self.current_goal is not None:
+            s.goal_x_map = self.current_goal.position.x
+            s.goal_y_map = self.current_goal.position.y
+        else:
+            s.goal_x_map = 0.0
+            s.goal_y_map = 0.0
+        s.path_cost_near = cost_near
+        s.path_cost_mid  = cost_mid
+        s.path_cost_far  = cost_far
+        self.step_pub.publish(s)
+
+    def compute_path_costs(self, x_map, y_map):
+        """Max global-costmap cost in three arc-length windows along the
+        upcoming plan: [0, 1], [1, 3], [3, 6] metres. Global costmap because
+        the local one's 3x3m window returns 0 past ~1.5m.
+        """
+        if self.global_costmap is None or len(self.current_plan) < 2:
+            return 0.0, 0.0, 0.0
+
+        # 1. Find closest plan point to the robot
+        closest_i = 0
+        closest_d2 = float('inf')
+        for i, (px, py) in enumerate(self.current_plan):
+            d2 = (px - x_map) ** 2 + (py - y_map) ** 2
+            if d2 < closest_d2:
+                closest_d2 = d2
+                closest_i = i
+
+        # 2. Walk forward along the plan, bucketing max cost by arc-length
+        bins = ((0.0, 1.0), (1.0, 3.0), (3.0, 6.0))
+        far_horizon = bins[-1][1]
+        maxes = [0, 0, 0]
+        acc = 0.0
+        prev_px, prev_py = self.current_plan[closest_i]
+        for (px, py) in self.current_plan[closest_i + 1:]:
+            acc += math.hypot(px - prev_px, py - prev_py)
+            if acc > far_horizon:
+                break
+            cost = get_costmap_cost(px, py, self.global_costmap)
+            for b, (lo, hi) in enumerate(bins):
+                if lo <= acc <= hi and cost > maxes[b]:
+                    maxes[b] = cost
+            prev_px, prev_py = px, py
+
+        return float(maxes[0]), float(maxes[1]), float(maxes[2])
+
+    def goal_cb(self, msg):
+        self.current_goal = msg
 
     def scan_cb(self, msg):
         valid = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
         if valid:
-            self.min_clearance = min(self.min_clearance, min(valid))
+            current = min(valid)
+            self.min_clearance = min(self.min_clearance, current)
+            self.last_clearance = current
 
     def plan_cb(self, msg):
         self.current_plan = [
@@ -90,6 +203,9 @@ class MetricsTracker(Node):
 
     def costmap_cb(self, msg):
         self.costmap = msg
+
+    def global_costmap_cb(self, msg):
+        self.global_costmap = msg
 
     def handle_reset(self, req, res):
         self.reset_accumulators()
@@ -122,6 +238,7 @@ class MetricsTracker(Node):
 
 
 def welford(n, mean, M2, x):
+    """Online mean / M2 update. Variance = M2 / (n - 1)."""
     n += 1
     delta = x - mean
     mean += delta / n
@@ -130,6 +247,7 @@ def welford(n, mean, M2, x):
 
 
 def get_costmap_cost(px, py, costmap):
+    """Cost at world point (px, py) in the given OccupancyGrid. 0 if OOB."""
     mx = int((px - costmap.info.origin.position.x) / costmap.info.resolution)
     my = int((py - costmap.info.origin.position.y) / costmap.info.resolution)
     if mx < 0 or my < 0 or mx >= costmap.info.width or my >= costmap.info.height:
@@ -138,6 +256,7 @@ def get_costmap_cost(px, py, costmap):
 
 
 def point_to_path_dist(px, py, path):
+    """Min distance from (px, py) to a polyline given as list of (x, y)."""
     min_dist = float('inf')
     for i in range(len(path) - 1):
         ax, ay = path[i]
@@ -145,8 +264,10 @@ def point_to_path_dist(px, py, path):
         dx, dy = bx - ax, by - ay
         seg_sq = dx * dx + dy * dy
         if seg_sq < 1e-9:
+            # degenerate segment — just distance to endpoint
             d = math.sqrt((px - ax) ** 2 + (py - ay) ** 2)
         else:
+            # project onto segment, clamp to [0, 1]
             t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg_sq))
             cx, cy = ax + t * dx, ay + t * dy
             d = math.sqrt((px - cx) ** 2 + (py - cy) ** 2)

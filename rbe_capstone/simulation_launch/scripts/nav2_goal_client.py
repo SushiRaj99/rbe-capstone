@@ -7,7 +7,6 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future
 from rclpy.parameter import Parameter
-from rcl_interfaces.msg import ParameterDescriptor, ParameterType, ParameterValue
 from simulation_launch.action import SendGoalToNav2
 
 import math, json

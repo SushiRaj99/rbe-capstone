@@ -1,147 +1,133 @@
 #!/usr/bin/env python3
+import math
+
+import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
-from nav_msgs.srv import GetMap
 from tf2_ros import Buffer, TransformListener
-import math
-import numpy as np
-import os
+
+
+def quat_to_yaw(q) -> float:
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
 
 
 class LidarModel(Node):
     def __init__(self):
         super().__init__('lidar_model')
 
-        self.map = None
+        self.occ = None
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+        self.resolution = 0.05
+        self.width = 0
+        self.height = 0
+        self.steps = None
 
-        self.map_client = self.create_client(GetMap, '/map_server/map')
-        while not self.map_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("Waiting for map service to activate...")
-        self.map_req = GetMap.Request()
-        self.future = self.map_client.call_async(self.map_req)
-        self.future.add_done_callback(self.map_callback)
-
-        self.scan_pub = self.create_publisher(LaserScan, '/scan', 10)
-
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-
-        self.timer = self.create_timer(0.1, self.publish_scan)
-
-        # LiDAR parameters
-        # TODO - eventually will want to make these configurable via a .yaml file
         self.angle_min = -math.pi
         self.angle_max = math.pi
         self.angle_increment = math.radians(1.0)
         self.range_max = 10.0
         self.range_min = 0.05
 
-    def map_callback(self, future):
-        try:
-            response = future.result()
-            if response is not None:
-                self.get_logger().info("Map received successfully!")
-                self.map = response.map
-            else:
-                self.logger().warn("Map service call received empty response.")
-        except Exception as e:
-            self.get_logger().error(f"Map service call failed: {e!r}")
+        n_rays = int(round((self.angle_max - self.angle_min) / self.angle_increment)) + 1
+        self.local_angles = np.linspace(self.angle_min, self.angle_max, n_rays)
+
+        self.scan_pub = self.create_publisher(LaserScan, '/scan', 10)
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Subscribe to /map with transient-local QoS so we latch the current
+        # map on connect AND get fresh messages whenever episode_runner calls
+        # LoadMap. A one-shot GetMap service call at startup would leave the
+        # lidar ray-tracing against the stale map forever after a switch.
+        latched_qos = QoSProfile(
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+        )
+        self.create_subscription(OccupancyGrid, '/map', self.map_cb, latched_qos)
+
+        self.timer = self.create_timer(0.1, self.publish_scan)
+
+    def map_cb(self, msg: OccupancyGrid) -> None:
+        info = msg.info
+        self.origin_x = info.origin.position.x
+        self.origin_y = info.origin.position.y
+        self.resolution = info.resolution
+        self.width = info.width
+        self.height = info.height
+        self.occ = (
+            np.asarray(msg.data, dtype=np.int8).reshape(self.height, self.width) > 50
+        )
+        # One step per cell — matches grid resolution, no benefit to oversampling.
+        self.steps = np.arange(self.range_min, self.range_max + self.resolution, self.resolution)
+        self.get_logger().info(
+            f'Map received ({self.width}x{self.height} @ {self.resolution} m).'
+        )
 
     def get_robot_pose(self):
         try:
-            t = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            x = t.transform.translation.x
-            y = t.transform.translation.y
-
-            q = t.transform.rotation
-            yaw = math.atan2(
-                2.0 * (q.w * q.z + q.x * q.y),
-                1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-            )
-            return x, y, yaw
-        except:
-            self.get_logger().error("failed to acquire transform from map->odom->base_link")
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+        except Exception:
             return None
-
-    def world_to_map(self, x, y):
-        origin = self.map.info.origin.position
-        res = self.map.info.resolution
-
-        mx = int((x - origin.x) / res)
-        my = int((y - origin.y) / res)
-        return mx, my
-
-    def is_occupied(self, mx, my):
-        if mx < 0 or my < 0:
-            return True
-        if mx >= self.map.info.width or my >= self.map.info.height:
-            return True
-
-        idx = my * self.map.info.width + mx
-        return self.map.data[idx] > 50  # TODO - using hard coded threshold for now but may want to revisit this
-
-    def raycast(self, x, y, theta):
-        step = self.map.info.resolution * 0.5
-        dist = 0.0
-
-        while dist < self.range_max:
-            rx = x + dist * math.cos(theta)
-            ry = y + dist * math.sin(theta)
-
-            mx, my = self.world_to_map(rx, ry)
-
-            if self.is_occupied(mx, my):
-                return dist
-
-            dist += step
-
-        return self.range_max
+        x = t.transform.translation.x
+        y = t.transform.translation.y
+        yaw = quat_to_yaw(t.transform.rotation)
+        return x, y, yaw
 
     def publish_scan(self):
-        if self.map is None:
+        if self.occ is None:
             return
-        stuff = GetMap.Request()
-
         pose = self.get_robot_pose()
         if pose is None:
             return
-
         x, y, yaw = pose
+
+        global_angles = self.local_angles + yaw
+        dx = np.cos(global_angles)[:, None]
+        dy = np.sin(global_angles)[:, None]
+        ss = self.steps[None, :]
+
+        rx = x + ss * dx
+        ry = y + ss * dy
+        mx = ((rx - self.origin_x) / self.resolution).astype(np.int32)
+        my = ((ry - self.origin_y) / self.resolution).astype(np.int32)
+
+        in_bounds = (mx >= 0) & (mx < self.width) & (my >= 0) & (my < self.height)
+        # Out-of-bounds cells act as occupied so rays terminate at the map edge.
+        hit = np.ones_like(in_bounds, dtype=bool)
+        hit[in_bounds] = self.occ[my[in_bounds], mx[in_bounds]]
+
+        first_hit = hit.argmax(axis=1)
+        ranges = self.steps[first_hit].astype(np.float32)
+        ranges[~hit.any(axis=1)] = self.range_max
 
         msg = LaserScan()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'base_link'
-
-        msg.angle_min = self.angle_min
-        msg.angle_max = self.angle_max
-        msg.angle_increment = self.angle_increment
-        msg.range_min = self.range_min
-        msg.range_max = self.range_max
-
-        ranges, intensities = [], []
-
-        angle = self.angle_min
-        while angle <= self.angle_max:
-            r = self.raycast(x, y, yaw + angle)
-            ranges.append(r)
-            angle += self.angle_increment
-
-        msg.ranges = ranges
+        msg.angle_min = float(self.angle_min)
+        msg.angle_max = float(self.angle_max)
+        msg.angle_increment = float(self.angle_increment)
+        msg.range_min = float(self.range_min)
+        msg.range_max = float(self.range_max)
+        msg.ranges = ranges.tolist()
         self.scan_pub.publish(msg)
-        #self.get_logger().debug("ranges=" + str(ranges))
 
 
 def main():
     rclpy.init()
     node = LidarModel()
-    rclpy.spin(node)
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    finally:
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
