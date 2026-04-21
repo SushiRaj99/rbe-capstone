@@ -27,17 +27,27 @@ LOG_DECODED_PARAMS = {'obstacle_scale'}
 
 def decode_param(name, action, ranges, baselines):
     lo, hi = ranges[name]
+    base = baselines[name]
     a = float(np.clip(action, -1.0, 1.0))
     if name in LOG_DECODED_PARAMS:
-        return lo * (hi / lo) ** ((a + 1.0) / 2.0)
-    return lo + (a + 1.0) / 2.0 * (hi - lo)
+        if a >= 0:
+            return base * (hi / base) ** a
+        return base * (base / lo) ** a
+    if a >= 0:
+        return base + a * (hi - base)
+    return base + a * (base - lo)
 
 
-def encode_param(name, value, ranges):
+def encode_param(name, value, ranges, baselines):
     lo, hi = ranges[name]
+    base = baselines[name]
     if name in LOG_DECODED_PARAMS:
-        return 2.0 * np.log(value / lo) / np.log(hi / lo) - 1.0
-    return 2.0 * (value - lo) / (hi - lo) - 1.0
+        if value >= base:
+            return np.log(value / base) / np.log(hi / base)
+        return np.log(value / base) / np.log(base / lo)
+    if value >= base:
+        return (value - base) / (hi - base)
+    return (value - base) / (base - lo)
 
 
 class BridgeNode(Node):

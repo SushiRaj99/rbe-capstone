@@ -189,7 +189,7 @@ def main():
             baseline_fn = lambda obs: baseline_action
         else:
             names = list(param_ranges.keys())
-            fixed_action = np.array([encode_param(n, baselines[n], param_ranges) for n in names], dtype=np.float32)
+            fixed_action = np.array([encode_param(n, baselines[n], param_ranges, baselines) for n in names], dtype=np.float32)
             if args.baseline_preset == 2:
                 fixed_action = fixed_action + 0.3
             baseline_fn = lambda obs: fixed_action
