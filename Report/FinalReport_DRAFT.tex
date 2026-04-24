@@ -56,29 +56,36 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 % Required sections: Introduction (Importance, objectives, related work), Materials & methods (Simulation setup: Turtlebot, ROS2, Code building
 % process, RL & reward function), Experiments (MPPI and/or DWB w/ and w/o RL), Results (same as experiment), Discussion (Implications, future work)
 
+%\begin{IEEEkeywords}
+%ROS2
+%DWB
+%MPPI
+%\end{IEEEkeywords}
+
 \section{Introduction}
     \subsection{Current state of the Art}
-    In the industrial environment of Autonomous Mobile Robots (AMRs), path planners are generally deployed en-masse and are not tailored to the
-    customers or environment needs in which they are deployed. This results in good, but not excellent, performance and, while easier to maintain on
+    In the industrial environment of Autonomous Mobil Robots (AMRs), path planners are generally deployed en-mass and are not tailored to the
+    customers or environment needs in which they are deployed. This results in good, but not excellent performance, and while easier to maintain on
     the backend, can limit customer output on the front end. These general deployments often cast a wide net and aim to operate on the ``safe side'',
     whether that be wide, nonadjustable clearance, paths around high traffic areas, or creating lanes that avoid foot traffic altogether. In reality,
-    each customer has different needs and, outside of required safety standards, may have certain workplace standards that could offer better
+    each customer has different needs, and outside of required safety standards, may have certain workplace standards that could offer better
     performance if utilized properly to tune the AMR deployment. It is obvious that hand tuning any number of parameters for each individual
     deployment site is unreasonable and the time spent on it would far outweigh any long-term benefits. Additionally, the deployment time for
     standard AMRs can be several weeks, meaning there is a potential for downtime when looking at brownfield sites. Implementing a reinforcement
-    learning (RL) algorithm paired with machine vision such as LiDAR could reduce that deployment time from weeks to days, as all the training is
+    learning (RL) algorithm paired with machine vision such as LiDAR, could reduce that deployment time from weeks to days, as all the training is
     done on the back end and there is no need to manually set path layouts.
     
     \subsection{Project Objectives}
-    To reduce the amount of manual input needed to tune path planner parameters, a reinforcement learning (RL) algorithm is deployed into the simulation for a period of training and the following parameters are adjusted to optimize the Turtlebot travel across the simulated warehouse: Clearance, Accuracy,
-    Efficiency, and Smoothness. These four parameters have been previously proven to be statistically significant modifiers for both path planners 
+    To reduce the amount of manual input needed to tune path planner parameters, an RL algorithm is deployed into the simulation for a period of
+    training and the following parameters are adjusted to optimize the Turtlebot travel across the simulated warehouse: Clearance, Accuracy,
+    Efficiency, and Smoothness. These four parameters have been previously proven to be statistically significant modifies for both path planners 
     under study \cite{b1} \cite{b2}. In this context, a dense reward function is custom-built to help direct the RL algorithm through each episode so
     that when it is deployed, it can be more lightweight in terms of computational load.
 
     \subsection{Background}
     While modern RL algorithms are a fairly new technology, AMRs and their predecessors, Automated Guided Vehicles (AGVs), are not and have been in
     use for over 70 years in various forms. Similarly, path planners such as Model Predictive Path Integral (MPPI) and Dynamic Window Approach-Based
-    (DWB) are 10-15 years old. As a result, there is a wide breadth of research that has been conducted to both verify plausibility as well as serve
+    (DWB) are 10-15 years old. As a result, there is a wide breadth of research that has been conducted to both verify plausiblity as well as serve
     as a reasonable set of starting points.
         
         \subsection{Path planning}
@@ -99,7 +106,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         \subsection{Reinforcement Learning}
         Qu et. al. presented a method of training an RL policy offline to accelerate the convergence for the online control of MPPI in an unmanned
         aerial vehicle (UAV). The method they proposed involved utilizing the Distributional Soft Actor-Critic (DSAC) algorithm to have an RL agent
-        train a pair of neural networks to model distributions for the control costs and roll-out guiding policy used directly within the online MPPI
+        train a pair of neural networks to model distributions for the control costs and rollout guiding policy used directly within the online MPPI
         control. This improved MPPI by providing better ``first guesses'' than standard MPPI. The results of their experiments showed that their
         method converged significantly faster, produced smoother trajectories, and provided higher success rate in reaching the goal than standard
         MPPI \cite{b3}. The guiding principle of this paper translates directly to this project to enhance the strengths of existing local planners
@@ -163,25 +170,24 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     The simulation runs on ROS2 Jazzy with the CycloneDDS middleware layer for inter-node communication. The robot model used is the TurtleBot4,
     whose URDF is loaded via \texttt{xacro} and published to the \texttt{/robot\_description} topic by the \texttt{robot\_state\_publisher} node.
     Navigation is performed in a 2D occupancy grid environment using the Nav2 stack, which includes \texttt{nav2\_map\_server} for loading pre-built
-    maps and \texttt{nav2\_lifecycle\_manager} for managing the life cycle of navigation nodes. Maps are stored as paired \texttt{.pgm} and
+    maps and \texttt{nav2\_lifecycle\_manager} for managing the lifecycle of navigation nodes. Maps are stored as paired \texttt{.pgm} and
     \texttt{.yaml} files and are selectable at launch time, enabling the team to quickly swap between different warehouse environments as the project
     progresses.
 
     Visualization is handled by RViz2, which renders the robot model, occupancy map, and planned paths. For the purpose of this project, RViz2 is chosen
     over Gazebo for visualization because it is more lightweight and the scope of this project does not require a full physics simulation. Gazebo will
     be consistently slower in launching and running episodes, which is not ideal for iterative tests and tuning of the RL algorithm. RViz2 provides
-    sufficient visualization capabilities for the 2D occupancy grid and planned paths while allowing for faster iteration cycles. To further speed up iterative development, launch files are configured to bring up all required nodes: the robot state publisher, static TF broadcasters, map server, life cycle manager,
-    and RViz2, making it straightforward to launch the full environment with a single command. 
+    sufficient visualization capabilities for the 2D occupancy grid and planned paths while allowing for faster iteration cycles. To further speed up iterative development, launch files are configured to bring up all required nodes---the robot state publisher, static TF broadcasters, map server, lifecycle manager,
+    and RViz2---making it straightforward to start up the full environment with a single command. 
 
     \subsection{RL Architecture}
-    The RL component of the project is a trainable agent that tunes planner parameters directly through the Nav2 stack. Independent from the
+    The RL component of the project is a trainable RL agent that tunes planner parameters directly through the Nav2 stack. Independent from the
     specific path planning algorithm, two design options were initially explored for RL architecture of the states: a one-time parameter tune, or a
     dynamic parameter tuning. It was decided that the implementation and expected results of a dynamic RL application would be favorable and feasible
     within the scope of this project. With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters
     throughout the navigation process where the state (observation) vector includes the robot's current pose, velocity, distance from the goal, and the obstacle cost of the surrounding environment. The actions continuously adjust the parameters (via a continuous action space) at each timestep. To support frequent observations and actions throughout the navigation process, the reward function is designed to encourage efficient, smooth, and safe navigation by providing positive rewards for progress towards the goal and negative rewards for collisions, long travel times, and time spent in close proximity to obstacles. The goal of these rewards is to encourage the agent to learn how to guide the robot through crowded environments as smoothly and quickly as possible.
 
     % Depending on how the "Performance Evaluation" builds out (see respective note in that sub-sub section), the gymnasium environment could either be introduced in it's own subsubsection here, or it could be introduced within the "Training Architecture" section below. Either way, it should be talked about.
-    % I think the gymnasium environment should be detailed somewhere in here, not the performance eval subsubsection
 
         \subsubsection{Training Architecture}
         Training is driven by the Stable-Baselines3 (SB3) library, which interfaces with the simulation through a custom
@@ -189,7 +195,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
         A per-step exponential moving average (EMA) with $\alpha=0.3$ is set up to smooth the raw policy output before it is sent to the navigation stack. The smoothed action vector is appended to the observation so the policy can reason about what parameters are currently active. This is important because the reward function needs to encourage smooth parameter changes, and the policy needs to learn how drastic parameter changes can lead to negative rewards. The EMA helps to mitigate this issue by smoothing out the policy's output, but it also means that the policy needs to learn how its actions will be smoothed over time.
 
-        The actual learning for the policy was accomplished using SB3's Soft Actor-Critic (SAC) agent. While most of the reviewed literature used the PPO algorithm, we found that PPO is not suited for converging quickly enough within the environment and time constraints of this project. While PPO may not be a bad option overall, speeding up PPO learning for this particular state and action space would require extensive hyperparameter tuning --- especially with the parameters related to exploration since the action space is so diverse. And even with extensive hyperparameter tuning, the exploration strategy and on-policy nature of PPO may not be ideal for significantly improving learning within this project scope. On the other hand, Soft Actor-Critic (SAC) is an off-policy algorithm with a much stronger emphasis on exploration \cite{b11}. This makes the algorithm incredibly sample efficient, which is helpful for environments like ours that are ``expensive'' to sample (e.g. feedback for each action within our environment is built on multiple complicated layers of asynchronous software). SAC ensures that a wide variety of planner parameter configurations are continually explored and evaluated without degrading the quality of the learned policy.
+        The actual learning for the policy was accomplished using SB3's Soft Actor-Critic (SAC) agent. While most of the reviewed literature used the PPO algorithm, we found that PPO is not suited for converging quickly enough within the environment and time constraints of this project. While PPO may not be a bad option overall, speeding up PPO learning for this particular state and action space would require extensive hyperparameter tuning --- especially with the parameters related to exploration since the action space is so diverse. And even with extensive hyperparameter tuning, the exploration strategy and on-policy nature of PPO may not be ideal for significantly improving learning within this project scope. On the other hand, SAC is an off-policy algorithm with a much stronger emphasis on exploration \cite{b11}. This makes the algorithm incredibly sample efficient, which is helpful for environments like ours that are ``expensive'' to sample (e.g. feedback for each action within our environment is built on multiple complicated layers of asyncronous software). SAC ensures that a wide variety of planner parameter configurations are continually explored and evaluated without degrading the quality of the learned policy.
 
         Checkpoints are saved every 2000 environment steps using SB3's \texttt{CheckpointCallback}. The SAC replay buffer is saved
         alongside the policy weights so that training can be resumed without discarding previously collected transitions. If a checkpoint
@@ -197,8 +203,8 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         to prevent gradient updates on an empty buffer.
 
         \subsubsection{Reward Function}
-        % I think this should be moved down to performance evaluation
-        The reward function is built around five per-step terms (dense rewards) and two terminal terms (sparse rewards). Each term targets one of four relevant navigation quality criteria used for evaluation throughout the literature: efficiency, smoothness, accuracy, and clearance.
+        The reward function is built around five per-step terms (dense rewards) and two terminal terms (sparse rewards). Each term targets one of four relevant navigation
+        quality criteria used for evaluation throughout the literature: efficiency, smoothness, accuracy, and clearance.
 
         The primary signal is a progress reward proportional to the reduction in distance to the goal each timestep, which gives the
         agent a continuous incentive to move forward rather than waiting for a sparse goal signal at the end of the episode. Three
@@ -211,7 +217,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
         At the end of each episode, a goal bonus of $+100$ is awarded if the robot successfully reaches its destination, and a failure
         penalty of $-50$ is applied if the episode ends without reaching the goal. The larger bonus relative to the penalty is
-        intentional as it keeps the agent willing to attempt difficult routes rather than playing it safe and timing out.
+        intentional---it keeps the agent willing to attempt difficult routes rather than playing it safe and timing out.
 
         \subsubsection{Training and Evaluation Tools}
         To support debugging during both training and evaluation, a live parameter visualization tool was
@@ -236,18 +242,20 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         problems straightforward to diagnose.
    
     \subsection{Performance Evaluation}
-    As mentioned in previous sections, in order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
+    In order to assess the impacts of incorporating RL within the local path planning process, a set of path quality metrics was used to evaluate
+    the performance of the RL-augmented planner against a baseline planner with standard parameters across a variety of scenarios (e.g. different
+    combinations of maps, start poses and goal poses). The path quality evaluation metrics will be based on the following criteria:
     \begin{itemize}
-        \item Clearance from obstacles (euclidean distance)
-        \item Accuracy (success rate in reaching the goal, deviation from global path plan, etc.)
+        \item Clearance from obstacles
+        \item Accuracy (success rate in reaching the goal, amount of deviation from global path plan, etc.)
         \item Efficiency (total time and distance to goal)
         \item Smoothness (heading angle variance, velocity variance, etc.)
     \end{itemize}
     
     % Going out on a limb since and stating that the actual "performance evaluation" would be assessing and comparing the total rewards of the planners as a sort of score since these are all baked into the reward function. Benefit to this is that it's a concrete single score and might minimize (or hopefully remove) the amount of individual analysis needed for each criteria. If Sushant's latest branch doesn't already include it, it shouldn't be too hard to write a dedicated script to run a baseline planner within the gymnasium environment (you either fake an action at every step, or just compute a reward for each observation that builds up in the queue).
-    Since each of the criteria listed above was incorporated directly into the reward function for training the RL agent, the reward function was used to evaluate the overall ``score'' of both the RL-augmented and baseline planners. The performance evaluation was accomplished by having both the RL-augmented planner (operating with a frozen policy) and the baseline planner step through the custom gymnasium environment over the same predefined set of episodes and the results were then directly compared, which can be seen in the results section below.
+    Since each of the criteria listed above was incorporated directly into the reward function for training the RL agent, the same reward function was used to evaluate the overall ``score'' of both the RL-augmented and baseline planners. Since the reward is already computed for each step through the custom gymnasium environment, the performance evaluation was accomplished by having both the RL-augmented planner (operating with a frozen policy) and the baseline planner step through the custom gymnasium enviornment over the same predefined set of episodes.
 
-    \subsection{General Code Architecture}
+    \subsection{Code Architecture}
     % Moved this after the RL architecture section for two reasons: 1) Huge chunk of our code is dedicated to RL and it doesn't make much sense to exclude it from this section 2) Including graphics here could minimize the amount of descriptive text needed in the "RL Architecture" section. If stuff starts getting wordy up there, we can just say "see Code Architecture section", or "see Figure __" and refer to figures here.
     -----PRESENT CODE FLOW / BREAKDOWN OF KEY FILES-----
         \subsubsection{Planner control and Episode Runner}
@@ -258,7 +266,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         pushes them out to the episode runner.
         ----DIAGRAM----
         
-        The episode\_runner node, as the name implies, runs a loop of episodes for both the untrained (benchmark) and trained (RL mode) path planners. It sets
+        The episode\_runner node, as the name implise, runs a loop of episodes for both the untrained (benchmark) and trained (RL mode) path planners. It sets
         up the simulation environment including the map and Turtlebot, and metrics for data collection. During the episodes and once the Nav2 finishes,
         it fetches the designed performance metrics for analysis and comparison. After each timestep in the simulation, this node works with the planner
         to capture the required data for the rest of the RL architecture.
@@ -266,7 +274,6 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
 \section{Experimentation}
 % Hopefully prof. will clarify what the intention of this section is. I interpretted this section more of a "Here's all the stuff we tried"; but it's reasonably interpretted below as "Here's how we obtained our results". Either way, it's weird that it has its own dedicated section.
-% I read this as here is the tests we ran and how: the use of the 20 different maps and how they were generated, how start / end points were generated, how many tests were run with standard and RL, maybe talking about actual runtime of each RL agent training, and also some talk about specific files if needed (like below)
     \subsection{Standard Path Planners}
     To generate an accurate baseline and determine the effectiveness of the RL agent, ----XX---- simulations were run with the off-the-shelf MPPI
     planner and DWB planner. Each simulation was evaluated for clearance, accuracy, efficiency, and smoothness and the results for both can be seen
@@ -281,7 +288,6 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     A detailed analysis of the data can be seen below in the Results section.
 
 \section{Results}
-% This should get into the comparisons, how much time was saved or not in navigation, if certian parameters had more effect, etc.
 After conduction all -----NUMBER---- of experiments with both standard and RL-driven planners, it was made clear that -----BIG CONCLUSIVE RESULT-----
 
 -----GRAPHIC OVERLAYS OF STANDARD / RL PERFORMANCE FOR CLEARANCE, ACCURACY, EFFICIENCY, AND SMOOTHNESS-----
@@ -318,10 +324,10 @@ Figures \ref{fig:view_tb} and \ref{fig:move_tb} below showcase the current state
 
 \section{Discussion}
     \subsection{Implications of Results}
-    % What kind of benefits could be seen for the time saved, if any, is it statistically significant
+    
 
     \subsection{Future Work}
-    % Adding more path planners & the ability to switch between, trying a different RL agent policy (?) adding dynmaic obstacles, expanding to 3D / Gazebo
+    
 
 \newpage
 \begin{thebibliography}{00}
