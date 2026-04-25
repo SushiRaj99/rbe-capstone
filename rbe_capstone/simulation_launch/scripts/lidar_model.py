@@ -2,6 +2,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Empty
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.srv import GetMap
 from tf2_ros import Buffer, TransformListener
@@ -29,6 +30,8 @@ class LidarModel(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.timer = self.create_timer(0.1, self.publish_scan)
+        
+        self.reset_sub = self.create_subscription(Empty, '/rl/reset_event', self.reset_callback, 10)
 
         # LiDAR parameters
         # TODO - eventually will want to make these configurable via a .yaml file
@@ -48,6 +51,20 @@ class LidarModel(Node):
                 self.logger().warn("Map service call received empty response.")
         except Exception as e:
             self.get_logger().error(f"Map service call failed: {e!r}")
+    
+    def reset_callback(self, msg):
+        self.get_logger().info("Reset event received! Updating map...")
+        self.map = None
+        self.request_map()
+    
+    def request_map(self):
+        if not self.map_client.service_is_ready():
+            self.get_logger().warn("Map service not ready during reset...")
+            return
+        self.get_logger().info("Request updated map...")
+        self.map_req = GetMap.Request()
+        future = self.map_client.call_async(self.map_req)
+        future.add_done_callback(self.map_callback)
 
     def get_robot_pose(self):
         try:

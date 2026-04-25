@@ -1,0 +1,72 @@
+{
+  "rl_model": {
+    "label": "RL Model (old_ppo_nav2_dwb_10000_steps.zip)",
+    "n_episodes": 10,
+    "mean_reward": 102.63998986301115,
+    "std_reward": 118.9060949775443,
+    "mean_length": 38.1,
+    "success_rate": 60.0,
+    "collision_rate": 0.0,
+    "timeout_rate": 20.0,
+    "stuck_rate": 20.0,
+    "outcomes": [
+      "goal_reached",
+      "timeout",
+      "stuck",
+      "goal_reached",
+      "goal_reached",
+      "timeout",
+      "stuck",
+      "goal_reached",
+      "goal_reached",
+      "goal_reached"
+    ],
+    "rewards": [
+      232.75904126966537,
+      -69.5019450314872,
+      -0.29261368069940574,
+      179.67258616998606,
+      167.78330648322213,
+      -78.5699985249974,
+      -0.13500000625177244,
+      182.6965979741953,
+      243.92206126130884,
+      168.0658627151696
+    ]
+  },
+  "baseline": {
+    "label": "Baseline (dwb)",
+    "n_episodes": 10,
+    "mean_reward": 68.44221627970852,
+    "std_reward": 109.31250411373705,
+    "mean_length": 35.3,
+    "success_rate": 40.0,
+    "collision_rate": 0.0,
+    "timeout_rate": 20.0,
+    "stuck_rate": 40.0,
+    "outcomes": [
+      "stuck",
+      "timeout",
+      "stuck",
+      "goal_reached",
+      "goal_reached",
+      "timeout",
+      "stuck",
+      "goal_reached",
+      "goal_reached",
+      "stuck"
+    ],
+    "rewards": [
+      15.580318281915284,
+      -70.15380566316102,
+      -0.2918970323764276,
+      179.5243231049057,
+      166.77393738036798,
+      -78.5699985249974,
+      -0.13500000625177244,
+      182.77435801906705,
+      243.98784283526655,
+      44.932084402349275
+    ]
+  }
+}

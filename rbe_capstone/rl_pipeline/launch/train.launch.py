@@ -2,34 +2,36 @@
 """
 train.launch.py  —  rl_pipeline package
 ========================================
-Launches the full RL training pipeline on top of an already-running Nav2 /
-simulation stack.  Specifically it brings up:
+Fully self-contained training launch.  Includes simulation_bringup.launch.py
+to start the entire stack (robot description, simulation physics, Nav2, and
+ROS2 bridge nodes), then launches rl_backbone.py as a standalone PPO training
+process at T=15 s once everything is confirmed active.
 
-  1. planner_config_manager  (ROS2 node) — bridges the RL env to Nav2 by:
-        • publishing /rl/observation and /rl/status
-        • subscribing to /rl/action and forwarding denormalized params to
-          /controller_server/set_parameters
-        • serving /rl/reset to handle per-episode map swaps + pose resets
-        • acting as action client to GoalManager (send_goal_to_nav2)
-
-  2. rl_backbone.py  (standalone Python process, NOT a ROS2 node) — runs
-        the Stable-Baselines3 PPO training loop via the Nav2GymEnv Gymnasium
-        wrapper.  It is launched with ExecuteProcess because it owns its own
-        rclpy init/shutdown and argparse CLI.
-
-Pre-requisites (must be running before this launch file is invoked):
-  • Nav2 stack  : bt_navigator, controller_server, planner_server,
-                  local_costmap, global_costmap, recoveries, velocity_smoother
-  • map_server + nav2_lifecycle_manager
-  • goal_manager           (simulation_launch package)
-  • diff_drive_model       (simulation_launch package)
-  • lidar_model            (simulation_launch package)
-  • sim_clock              (simulation_launch package)
+Complete startup timeline:
+  T =  0 s  robot_state_publisher, static map→odom TF, sim_clock
+  T =  1 s  diff_drive_model, lidar_model
+  T =  2 s  map_server, map_lifecycle_manager,
+             controller_server, planner_server, behavior_server,
+             bt_navigator, velocity_smoother, nav2_lifecycle_manager
+  T =  8 s  goal_manager, planner_config_manager
+  T = 15 s  rl_backbone.py  --mode train  (PPO training loop)
 
 Example usage:
+  # Defaults (500k steps, dwb planner):
   ros2 launch rl_pipeline train.launch.py
-  ros2 launch rl_pipeline train.launch.py planner:=dwb steps:=1000000
-  ros2 launch rl_pipeline train.launch.py log_dir:=/data/rl_logs ckpt_dir:=/data/rl_ckpts
+
+  # Custom hyperparameters:
+  ros2 launch rl_pipeline train.launch.py \\
+      steps:=1000000 lr:=1e-4 net_arch:='[512,512]' \\
+      log_dir:=/data/rl_logs ckpt_dir:=/data/rl_ckpts
+
+  # Override map and Nav2 params:
+  ros2 launch rl_pipeline train.launch.py \\
+      initial_map:=/path/to/my_map.yaml \\
+      nav2_params_file:=/path/to/my_nav2_params.yaml
+
+  # Enable RViz (not recommended during training — adds overhead):
+  ros2 launch rl_pipeline train.launch.py use_rviz:=true
 """
 
 import os
@@ -38,114 +40,115 @@ import sys
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, TimerAction
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch.actions import (
+    DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription,
+    LogInfo, TimerAction
+)
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
+_RL_PKG    = get_package_share_directory('rl_pipeline')
+_SIM_PKG   = get_package_share_directory('simulation_launch')
 
-# ---------------------------------------------------------------------------
-# Resolve rl_backbone.py path at launch-file parse time.
-# The script is expected to be installed to
-#   install/rl_pipeline/share/rl_pipeline/scripts/rl_backbone.py
-# which is the default location when setup.py data_files includes:
-#   (os.path.join('share', package_name, 'scripts'), glob('scripts/*.py'))
-# If your setup.py installs scripts elsewhere, adjust this path accordingly.
-# ---------------------------------------------------------------------------
-_PKG_SHARE = get_package_share_directory('rl_pipeline')
-_RL_BACKBONE = os.path.join(_PKG_SHARE, 'scripts', 'rl_backbone.py')
+_BRINGUP   = os.path.join(_RL_PKG, 'launch', 'simulation_bringup.launch.py')
+#_RL_BACKBONE = os.path.join(_RL_PKG, 'scripts', 'rl_backbone.py')
+
+_DEFAULT_NAV2_PARAMS = os.path.join(_SIM_PKG, 'config', 'nav2_dwb_params.yaml')
+_DEFAULT_INITIAL_MAP = os.path.join(_SIM_PKG, 'maps', 'warehouse', 'warehouse.yaml')
 
 
 def generate_launch_description():
 
     # -----------------------------------------------------------------------
-    # Launch arguments
+    # Launch arguments — infrastructure (forwarded to simulation_bringup)
     # -----------------------------------------------------------------------
-
-    # -- Shared --
     planner_arg = DeclareLaunchArgument(
-        'planner',
-        default_value='dwb',
-        description='Local planner type to tune.  Choices: dwb | mppi'
+        'planner', default_value='dwb',
+        description='Local planner to tune: dwb | mppi'
     )
-
-    # -- planner_config_manager node --
-    max_steps_arg = DeclareLaunchArgument(
-        'max_episode_steps',
-        default_value='500',
+    nav2_params_arg = DeclareLaunchArgument(
+        'nav2_params_file', default_value=_DEFAULT_NAV2_PARAMS,
+        description='Absolute path to Nav2 params YAML'
+    )
+    initial_map_arg = DeclareLaunchArgument(
+        'initial_map', default_value=_DEFAULT_INITIAL_MAP,
+        description='Absolute path to initial map .yaml (RL swaps maps per-episode)'
+    )
+    max_episode_steps_arg = DeclareLaunchArgument(
+        'max_episode_steps', default_value='2000',
         description='Maximum timesteps per episode before truncation'
     )
+    use_rviz_arg = DeclareLaunchArgument(
+        'use_rviz', default_value='false',
+        description='Launch RViz2 (not recommended during training)'
+    )
 
-    # -- PPO / training hyper-parameters --
+    # -----------------------------------------------------------------------
+    # Launch arguments — PPO training hyperparameters
+    # -----------------------------------------------------------------------
     steps_arg = DeclareLaunchArgument(
-        'steps',
-        default_value='500000',
+        'steps', default_value='20000',
         description='Total environment steps for PPO training'
     )
     log_dir_arg = DeclareLaunchArgument(
-        'log_dir',
-        default_value=os.path.expanduser('~/rl_logs'),
+        'log_dir', default_value=os.path.expanduser('~/ws/src/rbe_capstone/rl_pipeline/rl_logs'),
         description='Directory for TensorBoard logs and SB3 Monitor CSVs'
     )
     ckpt_dir_arg = DeclareLaunchArgument(
-        'ckpt_dir',
-        default_value=os.path.expanduser('~/rl_checkpoints'),
+        'ckpt_dir', default_value=os.path.expanduser('~/ws/src/rbe_capstone/rl_pipeline/rl_checkpoints'),
         description='Directory where model checkpoints (.zip) are saved'
     )
     net_arch_arg = DeclareLaunchArgument(
-        'net_arch',
-        default_value='[256, 256]',
-        description='JSON list defining hidden layer widths for PPO actor and critic MLPs'
+        'net_arch', default_value='[512, 512]',
+        description='JSON list of hidden layer widths for PPO actor and critic MLPs'
     )
     lr_arg = DeclareLaunchArgument(
-        'lr',
-        default_value='3e-4',
-        description='PPO learning rate (string form to support scientific notation, e.g. "1e-3")'
+        'lr', default_value='1e-4',
+        description='PPO learning rate (scientific notation supported, e.g. "1e-4")'
     )
     ro_buffer_arg = DeclareLaunchArgument(
-        'ro_buffer',
-        default_value='2048',
+        'ro_buffer', default_value='256',
         description='PPO rollout buffer size (n_steps per policy update)'
     )
     batch_size_arg = DeclareLaunchArgument(
-        'batch_size',
-        default_value='64',
+        'batch_size', default_value='16',
         description='PPO mini-batch size for gradient updates'
     )
     epochs_arg = DeclareLaunchArgument(
-        'epochs',
-        default_value='10',
-        description='Number of PPO optimization epochs per rollout'
+        'epochs', default_value='10',
+        description='PPO optimization epochs per rollout'
     )
 
     # -----------------------------------------------------------------------
-    # 1) planner_config_manager ROS2 node
+    # Include simulation_bringup.launch.py — starts everything up to and
+    # including planner_config_manager at T=8 s.
     # -----------------------------------------------------------------------
-    planner_config_manager_node = Node(
-        package='rl_pipeline',
-        executable='planner_config_manager',   # entry point name from setup.py
-        name='planner_config_manager',
-        output='screen',
-        emulate_tty=True,
-        parameters=[{
-            'planner_type':        LaunchConfiguration('planner'),
-            'max_episode_steps':   LaunchConfiguration('max_episode_steps'),
-            # All per-episode params (goal_id, start_x/y/yaw, goal_x/y/yaw,
-            # xy_tolerance, yaw_tolerance, map_filepath) are injected
-            # dynamically at runtime by RLBridgeNode.call_reset() via the
-            # /planner_config_manager/set_parameters service — no need to
-            # set static defaults here beyond what the node already declares.
-        }],
+    bringup = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(_BRINGUP),
+        launch_arguments={
+            'planner':           LaunchConfiguration('planner'),
+            'nav2_params_file':  LaunchConfiguration('nav2_params_file'),
+            'initial_map':       LaunchConfiguration('initial_map'),
+            'max_episode_steps': LaunchConfiguration('max_episode_steps'),
+            'use_rviz':          LaunchConfiguration('use_rviz'),
+        }.items()
     )
 
     # -----------------------------------------------------------------------
-    # 2) rl_backbone.py  —  standalone PPO training process
-    #    Delayed by 2 s to allow planner_config_manager to finish its own
-    #    startup and service/action registrations before the bridge tries
-    #    to connect.
+    # rl_backbone.py — standalone PPO training process (T = 15 s)
+    #
+    # Why T=15 s?  simulation_bringup layers complete at T=8 s.  An extra
+    # 7 s gives planner_config_manager time to register its /rl/reset
+    # service and for goal_manager to finish its wait_for_server() call
+    # against bt_navigator.  Reduce to ~12 s on fast machines once you've
+    # confirmed the stack comes up reliably.
     # -----------------------------------------------------------------------
     rl_train_process = ExecuteProcess(
         cmd=[
-            sys.executable, _RL_BACKBONE,
+            #sys.executable, _RL_BACKBONE,
+            '/opt/.venv/bin/python',
+            '-m', 'rl_pipeline.rl_backbone',
             '--mode',       'train',
             '--planner',    LaunchConfiguration('planner'),
             '--steps',      LaunchConfiguration('steps'),
@@ -161,16 +164,19 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-    # Delay the training process start to give the ROS2 node time to come up
-    delayed_train = TimerAction(period=2.0, actions=[rl_train_process])
+    delayed_train = TimerAction(period=15.0, actions=[rl_train_process])
 
     # -----------------------------------------------------------------------
-    # Assemble LaunchDescription
+    # Assemble
     # -----------------------------------------------------------------------
     return LaunchDescription([
-        # Launch arguments
+        # Infrastructure args
         planner_arg,
-        max_steps_arg,
+        nav2_params_arg,
+        initial_map_arg,
+        max_episode_steps_arg,
+        use_rviz_arg,
+        # Training args
         steps_arg,
         log_dir_arg,
         ckpt_dir_arg,
@@ -179,16 +185,19 @@ def generate_launch_description():
         ro_buffer_arg,
         batch_size_arg,
         epochs_arg,
-        # Startup banner
+        # Banner
         LogInfo(msg=[
-            '\n\n========== rl_pipeline | TRAINING MODE ==========\n'
-            '  planner        : ', LaunchConfiguration('planner'), '\n'
-            '  total steps    : ', LaunchConfiguration('steps'), '\n'
-            '  log dir        : ', LaunchConfiguration('log_dir'), '\n'
-            '  checkpoint dir : ', LaunchConfiguration('ckpt_dir'), '\n'
+            '\n========== rl_pipeline | TRAINING MODE ==========\n'
+            '  planner   : ', LaunchConfiguration('planner'), '\n'
+            '  steps     : ', LaunchConfiguration('steps'), '\n'
+            '  lr        : ', LaunchConfiguration('lr'), '\n'
+            '  log_dir   : ', LaunchConfiguration('log_dir'), '\n'
+            '  ckpt_dir  : ', LaunchConfiguration('ckpt_dir'), '\n'
+            '  rl_backbone starts at T+15 s\n'
             '=================================================\n'
         ]),
-        # Nodes / processes
-        planner_config_manager_node,
+        # Full stack bringup
+        bringup,
+        # Training process
         delayed_train,
     ])

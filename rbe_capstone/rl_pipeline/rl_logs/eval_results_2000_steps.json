@@ -1,0 +1,37 @@
+{
+  "rl_model": {
+    "label": "RL Model (ppo_nav2_dwb_2000_steps.zip)",
+    "n_episodes": 10,
+    "mean_reward": 50.19106660257486,
+    "std_reward": 117.88570272398073,
+    "mean_length": 35.9,
+    "success_rate": 40.0,
+    "collision_rate": 10.0,
+    "timeout_rate": 20.0,
+    "stuck_rate": 30.0,
+    "outcomes": [
+      "goal_reached",
+      "timeout",
+      "stuck",
+      "goal_reached",
+      "goal_reached",
+      "timeout",
+      "stuck",
+      "goal_reached",
+      "collision",
+      "stuck"
+    ],
+    "rewards": [
+      230.41861117638106,
+      -69.46117418688775,
+      -0.33585286554110483,
+      176.02001711769555,
+      162.66985545562255,
+      -77.75999852797763,
+      -0.13500000625177244,
+      180.97712489783163,
+      -100.0,
+      -0.4829170351239169
+    ]
+  }
+}

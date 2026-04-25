@@ -39,10 +39,11 @@ RUN apt update && apt install -y \
   && apt clean
 RUN curl -fsSL https://code-server.dev/install.sh | sh
 RUN code-server --install-extension Ranch-Hand-Robotics.rde-ros-2
-RUN python3 -m venv /opt/.venv && \
+RUN python3 -m venv /opt/.venv --system-site-packages && \
   /opt/.venv/bin/pip install --no-cache-dir --upgrade pip && \
   /opt/.venv/bin/pip install --no-cache-dir "stable-baselines3[extra]" && \
   /opt/.venv/bin/pip install --no-cache-dir gymnasium
+RUN touch /opt/.venv/COLCON_IGNORE
 
 # Additional configuration for development
 COPY .vimrc /root/.vimrc
@@ -51,6 +52,7 @@ RUN chmod +x /root/build_cscope_ws.sh
 RUN echo "alias build_cscope_ws='/root/build_cscope_ws.sh'" >> /root/.bashrc
 RUN echo "alias init_jazzy='source /opt/ros/${ROS_DISTRO}/setup.bash'" >> /root/.bashrc
 RUN echo "alias init_ws='[ -f /root/ws/install/setup.bash ] && source /root/ws/install/setup.bash'" >> /root/.bashrc
+RUN echo "alias init_env='source /opt/.venv/bin/activate && init_jazzy && init_ws'" >> /root/.bashrc
 RUN echo "colconbuild()\n{\n\tpushd /root/ws >/dev/null && colcon build \"\$@\" && popd > /dev/null\n}" >> /root/.bashrc
 RUN echo "alias colconclean='pushd /root/ws >/dev/null && rm -rf build install log && popd > /dev/null'" >> /root/.bashrc
 RUN echo "code()\n{\n\tcode-server \"\$@\" --auth=none --ignore-last-opened\n}" >> /root/.bashrc
