@@ -100,7 +100,7 @@ _RL_PKG   = get_package_share_directory('rl_pipeline')
 
 _DEFAULT_NAV2_PARAMS = os.path.join(_SIM_PKG, 'config', 'nav2_dwb_params.yaml')
 _DEFAULT_INITIAL_MAP = os.path.join(_SIM_PKG, 'maps', 'warehouse', 'warehouse.yaml')
-_DEFAULT_RVIZ_CFG    = os.path.join(_SIM_PKG, 'rviz', 'mac_is_a_pain_in_the_ass.rviz')
+_DEFAULT_RVIZ_CFG    = os.path.join(_SIM_PKG, 'rviz', 'tb4_eval_demo.rviz')
 
 
 def generate_launch_description():

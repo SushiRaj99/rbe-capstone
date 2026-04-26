@@ -23,7 +23,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/rl_pipeline']),
         ('share/rl_pipeline', ['package.xml']),
-        (os.path.join('share', 'rl_pipeline', 'launch'),
-            glob('launch/*.launch.py')),
+        (os.path.join('share', 'rl_pipeline', 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('lib', 'rl_pipeline'), ['demo.sh']),
     ],
 )

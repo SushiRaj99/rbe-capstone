@@ -381,7 +381,7 @@ def evaluate_baseline(
         lengths = all_steps, 
         outcomes = all_outcomes
     )
-    if results_path is not None:
+    if (results_path is not None) and (results_path.strip() != ""):
         pack_eval_results(results_path, 'baseline', ep_summary)
 
 def summarize_eval_results(label: str, rewards: List[float], lengths: List[float], outcomes: List[str]) -> dict:
