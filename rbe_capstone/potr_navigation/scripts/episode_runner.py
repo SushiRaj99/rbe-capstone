@@ -108,6 +108,7 @@ class EpisodeRunner(Node):
         self.metrics_pub      = self.create_publisher(EpisodeMetrics,  '/potr_navigation/episode_metrics', 10)
         self.current_goal_pub = self.create_publisher(Pose,            '/potr_navigation/current_goal', 10)  # read by metrics_tracker
         self.create_service(Trigger, '/potr_navigation/start_episode', self.handle_start_episode, callback_group=self.cb_group)
+        self.create_service(Trigger, '/potr_navigation/cancel_episode', self.handle_cancel_episode, callback_group=self.cb_group)
 
         # Run loop state
         self.nav2_active      = False
@@ -119,6 +120,7 @@ class EpisodeRunner(Node):
         self.rl_settle_until  = None
         self.rl_nav_status    = None   # set by goal result callback
         self.rl_switch_called = False  # prevents re-entry while waiting for planner switch callback
+        self.episode_goal_ptr = None   # current Nav2 goal handle for the rl_mode episode (so it can be cancelled on collision)
 
         # Action server goal tracking (separate from run loop)
         self.action_nav2_goal_ptr = None
@@ -328,10 +330,13 @@ class EpisodeRunner(Node):
             self.rl_nav_status = 'REJECTED'
             return
         self.get_logger().info('Episode goal accepted')
+        # Stored so the RL bridge can request cancellation on collision.
+        self.episode_goal_ptr = goal_ptr
         result_future = goal_ptr.get_result_async()
         result_future.add_done_callback(self.on_episode_goal_done)
 
     def on_episode_goal_done(self, future) -> None:
+        self.episode_goal_ptr = None
         try:
             self.rl_nav_status = decode_nav2_status(future.result().status)
         except Exception as e:
@@ -388,6 +393,20 @@ class EpisodeRunner(Node):
         self.rl_state = S_START_EPISODE
         res.success = True
         res.message = f'Starting episode {self.rl_episode_index}'
+        return res
+
+    def handle_cancel_episode(self, req, res):
+        # Called by the RL bridge when collision is detected. Cancels the active
+        # Nav2 goal so the run loop transitions to S_GETTING_METRICS and emits a
+        # final EpisodeMetrics message - which the RL env reads as the 'done' signal.
+        if self.episode_goal_ptr is None:
+            res.success = False
+            res.message = 'No active episode goal to cancel'
+            return res
+        self.get_logger().info('RL collision: cancelling active episode goal')
+        self.episode_goal_ptr.cancel_goal_async()
+        res.success = True
+        res.message = 'Cancellation requested'
         return res
 
     def check_nav2_active(self) -> None:

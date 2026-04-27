@@ -14,30 +14,25 @@ from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import String
 from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 
-VALID_PLANNERS = ('DWB', 'MPPI')
+VALID_PLANNERS = ('DWB',)
 VALID_PRESETS = (1, 2)
 
-PLUGIN_NS = {'DWB': 'FollowPathDWB', 'MPPI': 'FollowPath'}
+# DWB is registered under the "FollowPath" plugin name in nav2_params.yaml so the
+# stock Nav2 BT (which calls FollowPath by name) actually routes to it.
+PLUGIN_NS = {'DWB': 'FollowPath'}
 
 SHARED_PARAM_MAP = {
     'DWB': {
-        'max_linear_vel': 'FollowPathDWB.max_vel_x',
-        'min_linear_vel': 'FollowPathDWB.min_vel_x',
-        'max_angular_vel': 'FollowPathDWB.max_vel_theta',
-        'linear_accel': 'FollowPathDWB.acc_lim_x',
-        'angular_accel': 'FollowPathDWB.acc_lim_theta',
-        'goal_align_scale': 'FollowPathDWB.GoalAlign.scale',
-        'path_align_scale': 'FollowPathDWB.PathAlign.scale',
-        'goal_dist_scale': 'FollowPathDWB.GoalDist.scale',
-        'path_dist_scale': 'FollowPathDWB.PathDist.scale',
-        'obstacle_scale': 'FollowPathDWB.BaseObstacle.scale',
-    },
-    'MPPI': {
-        'max_linear_vel': 'FollowPath.vx_max',
-        'min_linear_vel': 'FollowPath.vx_min',
-        'max_angular_vel': 'FollowPath.wz_max',
-        'linear_accel': 'FollowPath.ax_max',
-        'angular_accel': 'FollowPath.az_max',
+        'max_linear_vel': 'FollowPath.max_vel_x',
+        'min_linear_vel': 'FollowPath.min_vel_x',
+        'max_angular_vel': 'FollowPath.max_vel_theta',
+        'linear_accel': 'FollowPath.acc_lim_x',
+        'angular_accel': 'FollowPath.acc_lim_theta',
+        'goal_align_scale': 'FollowPath.GoalAlign.scale',
+        'path_align_scale': 'FollowPath.PathAlign.scale',
+        'goal_dist_scale': 'FollowPath.GoalDist.scale',
+        'path_dist_scale': 'FollowPath.PathDist.scale',
+        'obstacle_scale': 'FollowPath.BaseObstacle.scale',
     },
 }
 
@@ -46,7 +41,7 @@ class PlannerController(Node):
     def __init__(self):
         super().__init__('planner_controller')
 
-        self.planner = 'MPPI'
+        self.planner = 'DWB'
         self.preset = 1
         self.current_max_lin = 0.8
         self.current_max_ang = 1.2
@@ -54,7 +49,6 @@ class PlannerController(Node):
         pkg = get_package_share_directory('potr_navigation')
         self.shared_yaml = os.path.join(pkg, 'config', 'shared_params.yaml')
         self.dwb_yaml = os.path.join(pkg, 'config', 'dwb_params.yaml')
-        self.mppi_yaml = os.path.join(pkg, 'config', 'mppi_params.yaml')
 
         self.cb = ReentrantCallbackGroup()
 
@@ -162,8 +156,7 @@ class PlannerController(Node):
             return False, f'Failed to load shared params: {e}'
 
         try:
-            planner_yaml = self.dwb_yaml if planner == 'DWB' else self.mppi_yaml
-            with open(planner_yaml) as f:
+            with open(self.dwb_yaml) as f:
                 planner_params = yaml.safe_load(f)[preset_key]['controller_server']['ros__parameters'][plugin_ns]
             for k, v in planner_params.items():
                 if k == 'critics':

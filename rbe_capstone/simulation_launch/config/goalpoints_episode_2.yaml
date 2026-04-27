@@ -17,7 +17,7 @@ episode_runner:
       [
         {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_01", "x":  6.80, "y":  8.67, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x": -3.30, "y": -2.17, "yaw": 0.0}, "goal": {"goal_id": "ep_02", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
-        {"map": "narrow_aisles", "start": {"x":  0.72, "y": -6.51, "yaw": 0.0}, "goal": {"goal_id": "ep_03", "x":  0.72, "y":  8.07, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x":  0.72, "y": -6.51, "yaw": 0.0}, "goal": {"goal_id": "ep_03", "x":  -1.29, "y":  9.55, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x":  4.96, "y": -7.82, "yaw": 0.0}, "goal": {"goal_id": "ep_04", "x": -3.52, "y":  7.03, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x":  6.80, "y":  8.67, "yaw": 0.0}, "goal": {"goal_id": "ep_05", "x":  4.96, "y": -7.82, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x": -7.66, "y":  0.75, "yaw": 0.0}, "goal": {"goal_id": "ep_06", "x":  3.84, "y": -3.73, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
@@ -25,6 +25,6 @@ episode_runner:
         {"map": "narrow_aisles", "start": {"x":  3.84, "y": -3.73, "yaw": 0.0}, "goal": {"goal_id": "ep_08", "x": -3.45, "y":  8.22, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x": -5.30, "y":  2.88, "yaw": 0.0}, "goal": {"goal_id": "ep_09", "x":  6.80, "y":  8.67, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x": -1.40, "y":  3.40, "yaw": 0.0}, "goal": {"goal_id": "ep_10", "x":  4.96, "y": -7.82, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
-        {"map": "narrow_aisles", "start": {"x": -3.15, "y":  0.40, "yaw": 0.0}, "goal": {"goal_id": "ep_11", "x":  0.72, "y":  8.07, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
+        {"map": "narrow_aisles", "start": {"x": -3.15, "y":  0.40, "yaw": 0.0}, "goal": {"goal_id": "ep_11", "x":  -1.29, "y":  9.55, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}},
         {"map": "narrow_aisles", "start": {"x":  0.72, "y":  8.07, "yaw": 0.0}, "goal": {"goal_id": "ep_12", "x": -7.66, "y":  0.75, "yaw": 0.0, "xy_tolerance": 0.35, "yaw_tolerance": 0.5}}
       ]

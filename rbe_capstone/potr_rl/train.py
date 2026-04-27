@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--plot', default=None)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--resume', default=None, help='Path to checkpoint .zip to resume from.')
+    parser.add_argument('--baseline-times', default=None, help='Path to per-goal_id baseline times JSON. Enables the terminal time-delta reward.')
     args = parser.parse_args()
 
     timestamp = time.strftime('%Y%m%d_%H%M%S')
@@ -27,7 +28,12 @@ def main():
     save_path = os.path.join(args.save_dir, run_name)
     plot_path = args.plot or os.path.join(args.save_dir, f'{run_name}_metrics.png')
 
-    env = PotrNavEnv(action_mode=args.action_mode, planner=args.planner, action_frequency=args.action_freq)
+    env = PotrNavEnv(
+        action_mode=args.action_mode,
+        planner=args.planner,
+        action_frequency=args.action_freq,
+        baseline_times_path=args.baseline_times,
+    )
 
     if args.check:
         print('Running environment checker...')
@@ -55,7 +61,7 @@ def main():
                 model.learning_starts = model.num_timesteps + warmup
                 print(f'No replay buffer at {replay_path} - deferring gradient updates for {warmup} env steps')
         else:
-            model = SAC('MlpPolicy', env, verbose=1, learning_starts=200, target_entropy=-0.25 * n_act)
+            model = SAC('MlpPolicy', env, verbose=1, learning_starts=200, target_entropy=-0.5 * n_act)
 
     plot_cb = LivePlotCallback(save_path=plot_path, update_every=8, verbose=1)
     ckpt_cb = CheckpointCallback(

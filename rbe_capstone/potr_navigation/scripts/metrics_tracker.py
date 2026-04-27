@@ -67,6 +67,13 @@ class MetricsTracker(Node):
         self.spd_n, self.spd_mean, self.spd_M2 = 0, 0.0, 0.0
         self.hdg_n, self.hdg_mean, self.hdg_M2 = 0, 0.0, 0.0
 
+        # Safety/quality aggregates
+        self.clearance_sum = 0.0
+        self.clearance_n = 0
+        self.inflation_steps = 0
+        self.inscribed_steps = 0
+        self.position_samples = 0
+
     def odom_cb(self, msg):
         # 1. Pose in odom frame (straight from the message)
         odom_x = msg.pose.pose.position.x
@@ -89,12 +96,17 @@ class MetricsTracker(Node):
             self.total_dist += math.sqrt(dx * dx + dy * dy)
         self.last_pos = (odom_x, odom_y)
 
-        # 4. Collision check against local costmap (odom frame)
+        # 4. Costmap cell sample - classify into inflation / inscribed buckets
         collision = False
         if self.costmap is not None:
-            if get_costmap_cost(odom_x, odom_y, self.costmap) >= 100:
+            cell_cost = get_costmap_cost(odom_x, odom_y, self.costmap)
+            self.position_samples += 1
+            if cell_cost >= 100:
                 self.collision_count += 1
+                self.inscribed_steps += 1
                 collision = True
+            elif cell_cost >= 30:
+                self.inflation_steps += 1
         self.last_collision = collision
 
         # 5. Speed + heading-rate running stats (Welford)
@@ -195,6 +207,8 @@ class MetricsTracker(Node):
             current = min(valid)
             self.min_clearance = min(self.min_clearance, current)
             self.last_clearance = current
+            self.clearance_sum += current
+            self.clearance_n += 1
 
     def plan_cb(self, msg):
         self.current_plan = [
@@ -219,17 +233,23 @@ class MetricsTracker(Node):
         m.total_time          = time.monotonic() - self.start_time
         m.total_distance      = self.total_dist
         m.min_clearance       = self.min_clearance if math.isfinite(self.min_clearance) else 0.0
+        m.mean_clearance      = (self.clearance_sum / self.clearance_n) if self.clearance_n > 0 else 0.0
         m.mean_path_deviation = (sum(self.path_devs) / len(self.path_devs)) if self.path_devs else 0.0
         m.max_path_deviation  = max(self.path_devs) if self.path_devs else 0.0
         m.velocity_variance   = (self.spd_M2 / (self.spd_n - 1)) if self.spd_n > 1 else 0.0
         m.heading_variance    = (self.hdg_M2 / (self.hdg_n - 1)) if self.hdg_n > 1 else 0.0
         m.collision_count     = self.collision_count
+        denom = max(self.position_samples, 1)
+        m.inflation_frac      = self.inflation_steps / denom
+        m.inscribed_frac      = self.inscribed_steps / denom
 
         res.metrics = m
         res.success = True
         res.message = (
             f'time={m.total_time:.1f}s  dist={m.total_distance:.2f}m  '
-            f'clearance={m.min_clearance:.2f}m  dev={m.mean_path_deviation:.3f}m  '
+            f'clearance(min/mean)={m.min_clearance:.2f}/{m.mean_clearance:.2f}m  '
+            f'dev={m.mean_path_deviation:.3f}m  '
+            f'inflation={100*m.inflation_frac:.1f}%  inscribed={100*m.inscribed_frac:.1f}%  '
             f'vel_var={m.velocity_variance:.4f}  hdg_var={m.heading_variance:.4f}  '
             f'collisions={m.collision_count}'
         )
