@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+"""Applies planner / preset / raw param updates at runtime via /set_parameters."""
 import json
 import os
 import time
+from typing import Any, Dict, Optional, Tuple
+
 import yaml
 import rclpy
 from rclpy.node import Node
@@ -17,10 +20,13 @@ from potr_navigation.srv import SwitchPlanner, SetParamPreset, SetRawParams
 VALID_PLANNERS = ('DWB',)
 VALID_PRESETS = (1, 2)
 
-# DWB is registered under the "FollowPath" plugin name in nav2_params.yaml so the
-# stock Nav2 BT (which calls FollowPath by name) actually routes to it.
+# DWB is registered under the "FollowPath" plugin name in nav2_params.yaml so
+# the stock Nav2 behavior tree (which calls FollowPath by name) actually
+# routes to it.
 PLUGIN_NS = {'DWB': 'FollowPath'}
 
+# Translate the policy / preset's logical parameter names into the actual ROS
+# parameter names exposed by the controller_server, scoped under the plugin.
 SHARED_PARAM_MAP = {
     'DWB': {
         'max_linear_vel': 'FollowPath.max_vel_x',
@@ -38,6 +44,13 @@ SHARED_PARAM_MAP = {
 
 
 class PlannerController(Node):
+    """
+    Bridges high-level planner / preset / raw-param requests onto the
+    controller_server's /set_parameters service. Also keeps the velocity
+    smoother's velocity caps in sync with the active params and publishes a
+    latched JSON snapshot of the current shared values for diagnostics.
+    """
+
     def __init__(self):
         super().__init__('planner_controller')
 
@@ -90,6 +103,15 @@ class PlannerController(Node):
         return res
 
     def handle_set_raw_params(self, req, res):
+        """
+        Service handler for /set_raw_params. Used by the RL bridge to push
+        per-step parameter updates.
+            1. Translate each logical name to the matching ROS parameter name.
+            2. Send the batch to controller_server/set_parameters.
+            3. Mirror max_linear_vel and max_angular_vel onto the velocity
+               smoother so its caps stay consistent.
+            4. Update the latched snapshot for downstream diagnostics.
+        """
         if len(req.names) != len(req.values):
             res.success = False
             res.message = 'names and values arrays must have equal length'
@@ -136,7 +158,17 @@ class PlannerController(Node):
         res.message = 'OK'
         return res
 
-    def apply_params(self):
+    def apply_params(self) -> Tuple[bool, str]:
+        """
+        Apply the active (planner, preset) by:
+            1. Loading shared params from shared_params.yaml.
+            2. Loading the planner's plugin params from dwb_params.yaml.
+            3. Sending the combined dict to controller_server/set_parameters
+               (skipping the 'critics' key, since live updates of that field
+               crash the controller).
+            4. Mirroring linear / angular speed caps onto the velocity smoother.
+            5. Updating the latched snapshot for diagnostics.
+        """
         planner = self.planner
         preset_key = f'preset_{self.preset}'
         plugin_ns = PLUGIN_NS[planner]
@@ -160,7 +192,8 @@ class PlannerController(Node):
                 planner_params = yaml.safe_load(f)[preset_key]['controller_server']['ros__parameters'][plugin_ns]
             for k, v in planner_params.items():
                 if k == 'critics':
-                    continue  # live critics update crashes the controller
+                    # Skip 'critics' - live updates of this field crash the controller.
+                    continue
                 ros_name = f'{plugin_ns}.{k}'
                 params[ros_name] = v
                 if ros_name in reverse_shared:
@@ -191,7 +224,12 @@ class PlannerController(Node):
         self.publish_params_snapshot()
         return True, 'OK'
 
-    def send_params(self, params, client=None):
+    def send_params(self, params: Dict[str, Any], client=None) -> Tuple[bool, str]:
+        """
+        Synchronously call /set_parameters with `params`. Returns
+        (success, message). Defaults to the controller_server client; pass a
+        different client (e.g. the velocity smoother's) to retarget.
+        """
         if client is None:
             client = self.set_params_client
         if not client.wait_for_service(timeout_sec=5.0):
@@ -224,7 +262,7 @@ class PlannerController(Node):
         self.get_logger().info(f'Applied {len(ros_params)} params ({self.planner}, preset {self.preset})')
         return True, 'OK'
 
-    def publish_params_snapshot(self):
+    def publish_params_snapshot(self) -> None:
         payload = json.dumps({
             'planner': self.planner,
             'preset': self.preset,
@@ -234,7 +272,8 @@ class PlannerController(Node):
         msg.data = payload
         self.params_pub.publish(msg)
 
-    def make_param_value(self, value):
+    def make_param_value(self, value: Any) -> ParameterValue:
+        """Wrap a Python value in the matching ParameterValue type for ROS."""
         pv = ParameterValue()
         if isinstance(value, bool):
             pv.type = ParameterType.PARAMETER_BOOL

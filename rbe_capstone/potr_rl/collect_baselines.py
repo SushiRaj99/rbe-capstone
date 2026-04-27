@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+"""Collect per-goal_id mean baseline times for the env's terminal time-delta reward."""
 import argparse
 import json
 import os
 from collections import defaultdict
+from typing import Callable, Dict, List
 
 import numpy as np
 
@@ -10,7 +12,20 @@ from potr_rl.env import PotrNavEnv, encode_param
 from potr_rl.params import PLANNER_PARAM_RANGES, PLANNER_BASELINES, DISCRETE_CONFIGS
 
 
-def collect_times(env, baseline_fn, n_episodes, action_mode):
+def collect_times(env: PotrNavEnv, baseline_fn: Callable, n_episodes: int, action_mode: str) -> Dict[str, List[float]]:
+    """
+    Run the baseline action repeatedly and record the time-to-goal for each
+    successful episode, grouped by goal_id.
+
+    Inputs:
+        env: PotrNavEnv instance
+        baseline_fn: callable(obs) -> action that returns the fixed baseline action
+        n_episodes: total episodes to run (episode_runner cycles its goal list)
+        action_mode: 'discrete' or 'continuous'
+
+    Returns:
+        Dict mapping goal_id -> list of total_time (s) for successful episodes.
+    """
     times_by_goal = defaultdict(list)
     obs, _ = env.reset()
     ep_reward = 0.0

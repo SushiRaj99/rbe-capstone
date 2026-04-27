@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+"""Gym environment that bridges Nav2 and the SAC/PPO agent."""
 import json
 import queue
 import threading
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import gymnasium as gym
@@ -22,12 +24,17 @@ from potr_rl.params import (
 )
 
 
-# Log decode for params with a wide range (action=0 hits geometric mean).
+# Params with a wide dynamic range get a log-spaced decode so action=0 lands
+# at the geometric mean of (lo, hi) instead of the arithmetic mean.
 LOG_DECODED_PARAMS = {'obstacle_scale'}
 
 
-def load_baseline_times(path):
-    # Returns {goal_id: mean_baseline_time_s}. Empty dict disables the time-delta term.
+def load_baseline_times(path: Optional[str]) -> Dict[str, float]:
+    """
+    Load a JSON file mapping goal_id -> mean baseline time (s). The env adds
+    weight * (baseline_time - actual_time) to the terminal reward when the
+    goal_id is found. An empty dict disables the term.
+    """
     if not path:
         return {}
     try:
@@ -38,20 +45,36 @@ def load_baseline_times(path):
         return {}
 
 
-def decode_param(name, action, ranges, baselines):
+def decode_param(name: str, action: float, ranges: Dict[str, Tuple[float, float]], baselines: Dict[str, float]) -> float:
+    """
+    Map a clipped action value in [-1, 1] back to the real ROS parameter
+    value, using the baseline as the action=0 anchor.
+
+    Inputs:
+        name: parameter name (e.g. 'max_linear_vel')
+        action: scalar in [-1, 1] (clipped here for safety)
+        ranges: {name: (lo, hi)} from PLANNER_PARAM_RANGES
+        baselines: {name: baseline_value} from PLANNER_BASELINES
+
+    Returns:
+        Real parameter value to send to Nav2.
+    """
     lo, hi = ranges[name]
     base = baselines[name]
     a = float(np.clip(action, -1.0, 1.0))
     if name in LOG_DECODED_PARAMS:
+        # Log-spaced: action=+1 -> hi, action=-1 -> lo, action=0 -> base.
         if a >= 0:
             return base * (hi / base) ** a
         return base * (base / lo) ** a
+    # Linear: action=+1 -> hi, action=-1 -> lo, action=0 -> base.
     if a >= 0:
         return base + a * (hi - base)
     return base + a * (base - lo)
 
 
-def encode_param(name, value, ranges, baselines):
+def encode_param(name: str, value: float, ranges: Dict[str, Tuple[float, float]], baselines: Dict[str, float]) -> float:
+    """Inverse of decode_param: real value -> action scalar in [-1, 1]."""
     lo, hi = ranges[name]
     base = baselines[name]
     if name in LOG_DECODED_PARAMS:
@@ -64,7 +87,13 @@ def encode_param(name, value, ranges, baselines):
 
 
 class BridgeNode(Node):
-    def __init__(self, obs_queue):
+    """
+    Thin ROS node that owns subscribers / clients used by PotrNavEnv.
+    Step / episode metrics arrive on a queue that the env consumes from the
+    main (gym) thread; service calls are exposed via call_sync().
+    """
+
+    def __init__(self, obs_queue: queue.Queue):
         super().__init__('potr_rl_bridge')
         self.obs_queue = obs_queue
         self.cb = ReentrantCallbackGroup()
@@ -84,7 +113,12 @@ class BridgeNode(Node):
     def episode_metrics_cb(self, msg):
         self.obs_queue.put(('done', msg))
 
-    def call_sync(self, client, request, label, timeout=10.0):
+    def call_sync(self, client, request, label: str, timeout: float = 10.0):
+        """
+        Block the calling thread until the async service call resolves or the
+        timeout expires. Returns the response (or None on timeout) and logs a
+        warning on failure.
+        """
         event = threading.Event()
         result = [None]
 
@@ -104,9 +138,28 @@ class BridgeNode(Node):
 
 
 class PotrNavEnv(gym.Env):
+    """
+    Gymnasium env wrapping a Nav2 episode loop. Each step:
+        1. Convert the policy's action to ROS parameter updates and apply them.
+        2. Drain StepMetrics messages from the bridge for `action_frequency`
+           ticks (or until 'done'), accumulating step rewards along the way.
+        3. On collision, cancel the active Nav2 goal and return with
+           fail_penalty applied.
+        4. On goal-or-fail, return the terminal reward (with optional
+           per-goal_id time-delta bonus).
+
+    Observation: 8 normalized dims (3 path-cost windows + 5 state dims)
+    concatenated with the EMA-smoothed action vector.
+    """
+
     metadata = {'render_modes': []}
 
-    def __init__(self, action_mode='continuous', planner='MPPI', action_frequency=50, step_timeout=30.0, baseline_times_path=None):
+    def __init__(self,
+                 action_mode: str = 'continuous',
+                 planner: str = 'MPPI',
+                 action_frequency: int = 50,
+                 step_timeout: float = 30.0,
+                 baseline_times_path: Optional[str] = None):
         super().__init__()
 
         self.action_mode = action_mode
@@ -143,14 +196,15 @@ class PotrNavEnv(gym.Env):
         self.ep_delta_sum = 0.0
         self.total_switches = 0
 
-        # Per-episode mean of the raw (clipped, pre-EMA) action - diagnostic for what
-        # the policy actually wants to output before smoothing.
+        # Per-episode mean of the raw (clipped, pre-EMA) action. Diagnostic
+        # for what the policy actually wants before smoothing damps it.
         self.action_names = list(self.param_ranges.keys())
         self.ep_action_sum = np.zeros(n_act, dtype=np.float32)
         self.ep_action_count = 0
 
-        # Per-tick trace: linear velocity vs smoothed/raw max_linear_vel cap.
-        # Used by eval.py --trace to diagnose velocity-dip sources (policy vs DWB vs smoother).
+        # Per-tick trace: linear velocity vs smoothed / raw max_linear_vel cap.
+        # Consumed by eval.py --trace to diagnose velocity-dip sources
+        # (policy vs DWB vs the velocity smoother).
         self.last_raw_action = np.zeros(n_act, dtype=np.float32)
         self.tick_trace_v = []
         self.tick_trace_cap_smoothed = []
@@ -222,12 +276,14 @@ class PotrNavEnv(gym.Env):
 
             if tag == 'done':
                 ep = data
-                terminal = REWARD['goal_bonus'] if ep.goal_reached else REWARD['fail_penalty']
-                # Per-goal_id time delta centers the reward on zero across episodes.
+                terminal = REWARD.goal_bonus if ep.goal_reached else REWARD.fail_penalty
+                # Add the per-goal_id time delta bonus when a baseline time is
+                # available. This centers the time signal around zero across
+                # episodes instead of letting it scale with path length.
                 if ep.goal_reached:
                     baseline_time = self.baseline_time_by_goal.get(ep.goal_id)
                     if baseline_time is not None:
-                        terminal += REWARD['time_delta_weight'] * (float(baseline_time) - float(ep.total_time))
+                        terminal += REWARD.time_delta_weight * (float(baseline_time) - float(ep.total_time))
                 total_reward += terminal
                 info = self.episode_info(
                     terminal_reward=terminal,
@@ -244,9 +300,11 @@ class PotrNavEnv(gym.Env):
             self.last_obs = obs
             ticks += 1
 
-            # Collision = unrecoverable failure: cancel the Nav2 goal so episode_runner
-            # transitions to S_GETTING_METRICS, drain until we see the matching 'done',
-            # then return with fail_penalty applied.
+            # Treat a collision as an unrecoverable episode failure:
+            #   1. Cancel the active Nav2 goal so episode_runner transitions to
+            #      S_GETTING_METRICS and emits a final EpisodeMetrics message.
+            #   2. Drain the queue until we see the matching 'done'.
+            #   3. Return with fail_penalty applied.
             if data.collision:
                 self.node.call_sync(self.node.cancel_episode_client, Trigger.Request(), label='cancel_episode (collision)')
                 while True:
@@ -257,7 +315,7 @@ class PotrNavEnv(gym.Env):
                         break
                     if tag == 'done':
                         break
-                terminal = REWARD['fail_penalty']
+                terminal = REWARD.fail_penalty
                 total_reward += terminal
                 info = self.episode_info(
                     terminal_reward=terminal,
@@ -307,6 +365,13 @@ class PotrNavEnv(gym.Env):
         return info
 
     def apply_action(self, action):
+        """
+        Translate the policy's action into ROS parameter updates and apply them.
+            1. Discrete mode: switch planner + preset via dedicated services.
+            2. Continuous mode: clip the action, run it through the EMA filter,
+               decode each dim into a real param value, expand meta-params, and
+               push everything via /set_raw_params.
+        """
         if self.action_mode == 'discrete':
             planner, preset = DISCRETE_CONFIGS[int(action)]
             req = SwitchPlanner.Request()
@@ -321,7 +386,8 @@ class PotrNavEnv(gym.Env):
         self.last_raw_action = action.copy()
         self.ep_action_sum += action
         self.ep_action_count += 1
-        # EMA smoothing damps rapid swings before they hit Nav2.
+
+        # EMA smoothing damps rapid swings before the action reaches Nav2.
         new_smoothed = ACTION_EMA_ALPHA * self.smoothed_action + (1.0 - ACTION_EMA_ALPHA) * action
         delta = float(np.sum(np.abs(new_smoothed - self.prev_smoothed)))
         self.prev_smoothed = self.smoothed_action.copy()
@@ -339,7 +405,12 @@ class PotrNavEnv(gym.Env):
         req.values = ros_values
         self.node.call_sync(self.node.set_raw_params_client, req, label='set_raw_params')
 
-    def expand_meta_params(self, names, values):
+    def expand_meta_params(self, names: List[str], values: List[float]) -> Tuple[List[str], List[float]]:
+        """
+        Expand the policy's meta-params into the underlying ROS parameter list.
+        Each meta-param (e.g. 'path_weight') multiplies a set of reference
+        scales from DWB_META_REFERENCE; non-meta params pass through unchanged.
+        """
         ros_names = []
         ros_values = []
         for name, val in zip(names, values):
@@ -364,6 +435,15 @@ class PotrNavEnv(gym.Env):
                 return self.step_metrics_to_obs(data)
 
     def step_metrics_to_obs(self, msg):
+        """
+        Convert a StepMetrics message into the agent's observation vector.
+        The 8 base dims are normalized to [-1, 1] using OBS_LOW / OBS_HIGH;
+        the EMA-smoothed action is appended so the policy is self-aware.
+
+        Returns:
+            (obs, distance_to_goal) - obs is the full vector, distance is
+            kept around so step_reward can compute progress.
+        """
         path_costs = np.array([msg.path_cost_near, msg.path_cost_mid, msg.path_cost_far], dtype=np.float32)
         state = np.array([
             msg.distance_to_goal,
@@ -378,24 +458,31 @@ class PotrNavEnv(gym.Env):
         return obs, float(msg.distance_to_goal)
 
     def compute_step_reward(self, msg):
+        """
+        Per-tick reward: progress toward the goal, with shaping penalties for
+        path deviation, angular velocity, costmap proximity, collision, and
+        sluggish cruise. Per-component sums are accumulated for diagnostics.
+        """
         raw_dist = float(msg.distance_to_goal)
         progress = self.prev_dist - raw_dist
         proximity = max(0.0, float(msg.path_cost_near) - 30.0) / 100.0
 
-        # Penalize slow cruise far from goal in open obs (path_cost_near low).
-        # Doesn't fire for legitimate slowdowns at corners/inflation/near-goal.
+        # Slow-pace penalty only fires when the robot is genuinely cruising
+        # below 0.4 m/s while well clear of the goal and not in inflation.
+        # That way it does not punish legitimate slowdowns at corners or as
+        # the robot approaches the goal.
         slow_when_safe = float(
             msg.linear_velocity < 0.4
             and msg.distance_to_goal > 1.5
             and msg.path_cost_near < 30
         )
 
-        r_progress = REWARD['progress'] * progress
-        r_pathdev = REWARD['path_dev'] * msg.path_deviation
-        r_angvel = REWARD['ang_vel'] * msg.angular_velocity
-        r_proximity = REWARD['proximity'] * proximity
-        r_collision = REWARD['collision'] * float(msg.collision)
-        r_slow = REWARD['slow_pace'] * slow_when_safe
+        r_progress = REWARD.progress * progress
+        r_pathdev = REWARD.path_dev * msg.path_deviation
+        r_angvel = REWARD.ang_vel * msg.angular_velocity
+        r_proximity = REWARD.proximity * proximity
+        r_collision = REWARD.collision * float(msg.collision)
+        r_slow = REWARD.slow_pace * slow_when_safe
 
         self.ep_r_progress += r_progress
         self.ep_r_pathdev += r_pathdev
@@ -409,8 +496,13 @@ class PotrNavEnv(gym.Env):
         return float(r_progress + r_pathdev + r_angvel + r_proximity + r_collision + r_slow)
 
     def record_tick_trace(self, msg):
-        # Per-tick trace for eval velocity-dip diagnosis. linear_velocity always logs;
-        # cap lines fall back to the yaml-fixed value when max_linear_vel isn't in the action space.
+        """
+        Log linear velocity and the (smoothed / raw) max_linear_vel cap each
+        tick so eval.py --trace can attribute velocity dips to the policy
+        action vs. DWB or the velocity smoother. If max_linear_vel isn't part
+        of the active action space, the cap falls back to the preset-1 value
+        from the yaml (0.8 m/s).
+        """
         if self.action_mode == 'discrete':
             return
         self.tick_trace_v.append(float(msg.linear_velocity))
@@ -423,6 +515,5 @@ class PotrNavEnv(gym.Env):
                 decode_param('max_linear_vel', float(self.last_raw_action[i]), self.param_ranges, self.baselines)
             )
         else:
-            # max_linear_vel is fixed at preset-1 yaml value (0.8 m/s for current setup).
             self.tick_trace_cap_smoothed.append(0.8)
             self.tick_trace_cap_raw.append(0.8)

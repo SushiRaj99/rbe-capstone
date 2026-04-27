@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
+"""Stable-Baselines3 callback that maintains a live training-metrics plot."""
 import os
+from typing import List
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
 
+# Window size for the rolling-mean overlay drawn on top of every series.
 WINDOW = 10
 
 
 class LivePlotCallback(BaseCallback):
-    def __init__(self, save_path='training_metrics.png', update_every=8, verbose=0):
+    """
+    Collects per-episode stats from the env's info dict and writes a live PNG
+    every `update_every` episodes. Tracks reward, length, entropy coefficient,
+    reward breakdown, termination outcomes, collision fraction, and per-dim
+    mean action.
+    """
+
+    def __init__(self, save_path: str = 'training_metrics.png', update_every: int = 8, verbose: int = 0):
         super().__init__(verbose)
         self.save_path = save_path
         self.update_every = update_every
 
+        # Top-level episode metrics
         self.ep_rewards = []
         self.ep_lengths = []
         self.ent_coefs = []
         self.ep_switches = []
         self.ep_deltas = []
 
+        # Reward-component breakdown
         self.ep_r_progress = []
         self.ep_r_pathdev = []
         self.ep_r_angvel = []
@@ -28,14 +41,17 @@ class LivePlotCallback(BaseCallback):
         self.ep_r_slow = []
         self.ep_r_terminal = []
 
+        # Termination outcome: one of {goal, fail, truncated}
         self.ep_goal = []
         self.ep_fail = []
         self.ep_trunc = []
 
+        # Per-episode safety / proximity stats
         self.ep_collision_frac = []
         self.ep_final_distance = []
 
-        # Per-dim mean action - populated lazily once we see the first continuous-mode info.
+        # Per-dim mean action. Populated lazily once we see the first
+        # continuous-mode info dict so action_names and shape are known.
         self.action_names = None
         self.ep_action_means = None
 
@@ -90,7 +106,8 @@ class LivePlotCallback(BaseCallback):
     def on_training_end(self):
         self.save_plot()
 
-    def rolling(self, data):
+    def rolling(self, data: List[float]) -> np.ndarray:
+        """Return a `WINDOW`-length rolling mean of `data` (mode='valid')."""
         kernel = np.ones(WINDOW) / WINDOW
         return np.convolve(data, kernel, mode='valid')
 
@@ -193,7 +210,8 @@ class LivePlotCallback(BaseCallback):
             ax2.set_ylabel('Final distance to goal (m)', color='darkcyan')
             ax2.tick_params(axis='y', labelcolor='darkcyan')
 
-        # Per-dim mean action (raw policy output, pre-EMA). 0 = baseline, +1 = range max, -1 = range min.
+        # Per-dim mean action (raw policy output, pre-EMA).
+        # 0 corresponds to the baseline value, +1 to range max, -1 to range min.
         if has_actions:
             ax = axes[next_ax]
             next_ax += 1

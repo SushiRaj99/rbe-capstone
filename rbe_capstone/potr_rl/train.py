@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Train a SAC (continuous) or PPO (discrete) agent against PotrNavEnv."""
 import argparse
 import os
 import time
@@ -49,6 +50,10 @@ def main():
     else:
         n_act = env.action_space.shape[0]
         if args.resume:
+            # Load weights from the checkpoint, then try to reload the matching
+            # replay buffer so resumed training has warm transitions to learn
+            # from. If the buffer is missing, defer gradient updates for a brief
+            # warmup so SAC fills the buffer before stepping the optimizer.
             model = SAC.load(args.resume, env=env)
             print(f'Resumed SAC from {args.resume}')
             stem = args.resume[:-4] if args.resume.endswith('.zip') else args.resume

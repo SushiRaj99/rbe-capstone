@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+"""Evaluate a trained policy against the hand-tuned DWB/MPPI baseline."""
 import argparse
 import csv
 import os
 from collections import defaultdict
+from typing import Any, Callable, Dict, List, Optional
 
 import matplotlib
 matplotlib.use('Agg')
@@ -14,7 +16,8 @@ from potr_rl.env import PotrNavEnv, decode_param, encode_param
 from potr_rl.params import PLANNER_PARAM_RANGES, PLANNER_BASELINES, DISCRETE_CONFIGS
 
 
-def decode_continuous_action(action, param_ranges, baselines):
+def decode_continuous_action(action: np.ndarray, param_ranges: Dict, baselines: Dict) -> str:
+    """Pretty-print a continuous action vector as 'name=value' pairs for logging."""
     parts = []
     for i, name in enumerate(param_ranges):
         val = decode_param(name, action[i], param_ranges, baselines)
@@ -22,7 +25,23 @@ def decode_continuous_action(action, param_ranges, baselines):
     return '  '.join(parts)
 
 
-def run_episodes(env, action_fn, label, n_episodes, action_mode, param_ranges=None, baselines=None):
+def run_episodes(env, action_fn: Callable, label: str, n_episodes: int, action_mode: str,
+                 param_ranges: Optional[Dict] = None, baselines: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    """
+    Step the env for n_episodes, calling action_fn(obs) at each step.
+    Records per-episode metrics from the EpisodeMetrics msg attached to info.
+
+    Inputs:
+        env: PotrNavEnv instance
+        action_fn: callable(obs) -> action
+        label: human-readable label printed at the start of the run
+        n_episodes: number of full episodes to run
+        action_mode: 'discrete' or 'continuous' (controls how actions are pretty-printed)
+        param_ranges, baselines: only required in continuous mode for action decoding
+
+    Returns:
+        List of per-episode dicts (goal_id, goal_reached, total_time, ...).
+    """
     print(f'\n=== {label} ===')
     results = []
     ep = 0
@@ -91,7 +110,7 @@ def run_episodes(env, action_fn, label, n_episodes, action_mode, param_ranges=No
     return results
 
 
-def save_eval_plot(all_results, save_path, planner):
+def save_eval_plot(all_results: Dict[str, List[Dict]], save_path: str, planner: str) -> None:
     series = []
     if 'baseline' in all_results:
         series.append(('Baseline', all_results['baseline'], 'slategray'))
@@ -168,10 +187,13 @@ def save_eval_plot(all_results, save_path, planner):
     print(f'Eval plot saved  {save_path}')
 
 
-def save_trace_plots(all_results, save_stem, n_episodes):
-    # Overlay velocity vs smoothed/raw max_vel cap for the first n episodes.
-    # Baseline and policy traces share the same figure so dips can be attributed
-    # to policy action changes vs DWB/smoother behavior.
+def save_trace_plots(all_results: Dict[str, List[Dict]], save_stem: str, n_episodes: int) -> None:
+    """
+    Render per-episode velocity traces overlaid with the policy's max_vel cap
+    (raw and EMA-smoothed) for the first `n_episodes` of each series. Baseline
+    and policy share the same figure so dips can be attributed to policy
+    actions vs. DWB or velocity-smoother behavior.
+    """
     series = [(label, all_results[key]) for label, key in (('baseline', 'baseline'), ('policy', 'policy')) if key in all_results]
     if not series:
         return
@@ -205,8 +227,13 @@ def save_trace_plots(all_results, save_stem, n_episodes):
         print(f'Trace plot saved  {path}')
 
 
-def _index_by_goal_occurrence(results):
-    # {(goal_id, k): result_dict} where k is 0-based occurrence count of goal_id.
+def index_by_goal_occurrence(results: Optional[List[Dict]]) -> Dict:
+    """
+    Build {(goal_id, k): result_dict} where k is the 0-based occurrence count
+    of that goal_id within the series. Used to pair baseline and policy
+    trials by (goal_id, k-th run) instead of by raw episode index, so an early
+    failure that shifts the goal sequence does not corrupt the comparison.
+    """
     indexed = {}
     counts = defaultdict(int)
     for r in results or []:
@@ -219,18 +246,24 @@ def _index_by_goal_occurrence(results):
     return indexed
 
 
-def _fmt(v, prec=3):
+def fmt_value(v: Any, prec: int = 3) -> str:
+    """Return a fixed-precision string for numeric `v`, or '' if `v` isn't numeric."""
     return f'{v:.{prec}f}' if isinstance(v, (int, float)) else ''
 
 
-def save_per_episode_csv(all_results, save_path):
+def save_per_episode_csv(all_results: Dict[str, List[Dict]], save_path: str) -> None:
+    """
+    Write a per-trial CSV that pairs baseline and policy by (goal_id, k-th
+    occurrence). Rows where one series did not run that occurrence still
+    appear, with that series' columns blank.
+    """
     baseline = all_results.get('baseline')
     policy = all_results.get('policy')
     if not baseline and not policy:
         return
 
-    b_idx = _index_by_goal_occurrence(baseline)
-    p_idx = _index_by_goal_occurrence(policy)
+    b_idx = index_by_goal_occurrence(baseline)
+    p_idx = index_by_goal_occurrence(policy)
     keys = sorted(set(b_idx) | set(p_idx))
     if not keys:
         return
@@ -254,14 +287,19 @@ def save_per_episode_csv(all_results, save_path):
                 delta = f'{p_t - b_t:.3f}'
             w.writerow([
                 gid, k + 1,
-                b.get('goal_reached', ''), _fmt(b_t), _fmt(b.get('total_dist')),
-                p.get('goal_reached', ''), _fmt(p_t), _fmt(p.get('total_dist')),
+                b.get('goal_reached', ''), fmt_value(b_t), fmt_value(b.get('total_dist')),
+                p.get('goal_reached', ''), fmt_value(p_t), fmt_value(p.get('total_dist')),
                 delta,
             ])
     print(f'Per-trial CSV saved  {save_path}')
 
 
 def save_per_goal_csv(all_results, save_path):
+    """
+    Write a per-goal aggregate CSV with one row per unique goal_id, summarizing
+    both series with counts, success rate, mean and std of time-to-goal, and
+    delta of mean times.
+    """
     baseline = all_results.get('baseline')
     policy = all_results.get('policy')
     if not baseline and not policy:
@@ -314,9 +352,9 @@ def save_per_goal_csv(all_results, save_path):
             w.writerow([
                 gid,
                 b['n'], b['n_reached'],
-                _fmt(b_rate, 3), _fmt(b['mean']), _fmt(b['std']),
+                fmt_value(b_rate, 3), fmt_value(b['mean']), fmt_value(b['std']),
                 p['n'], p['n_reached'],
-                _fmt(p_rate, 3), _fmt(p['mean']), _fmt(p['std']),
+                fmt_value(p_rate, 3), fmt_value(p['mean']), fmt_value(p['std']),
                 delta,
             ])
     print(f'Per-goal CSV saved   {save_path}')
