@@ -1,6 +1,6 @@
 services:
   rbe_capstone:
-    image: ghcr.io/sushiraj99/rbe-capstone/capstone_ros_layer:0.0.2_ecw
+    image: ghcr.io/ecwenzlaff/rbe-capstone:0.0.2_ecw
     container_name: rbe_capstone
     network_mode: host
     ipc: host

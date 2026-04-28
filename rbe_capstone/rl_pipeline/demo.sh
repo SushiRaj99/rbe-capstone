@@ -2,7 +2,7 @@
 
 # This script should be run via 'ros2 run rl_pipeline demo.sh' after the workspace has been sourced.
 seed=12
-num_episodes=6
+num_episodes=10
 while [ $# -ge 1 ]; do
     case $1 in
         '-s'|'-S'|'--seed')

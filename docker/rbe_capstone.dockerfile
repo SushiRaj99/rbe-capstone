@@ -1,4 +1,4 @@
-FROM ghcr.io/sushiraj99/rbe-capstone/capstone_ros_layer:0.0.2
+FROM ghcr.io/ecwenzlaff/rbe-capstone/capstone_ros_layer:0.0.2_ecw
 
 # Copy source packages into workspace
 COPY rbe_capstone/ /root/ws/src/rbe_capstone/

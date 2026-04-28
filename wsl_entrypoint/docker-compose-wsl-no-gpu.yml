@@ -1,0 +1,25 @@
+services:
+  rbe_capstone:
+    image: ghcr.io/ecwenzlaff/rbe-capstone:0.0.2_ecw
+    container_name: rbe_capstone
+    network_mode: host
+    ipc: host
+    hostname: rbe-capstone-env
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # Allows graphical programs in the container
+      - DISPLAY=${DISPLAY}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - PULSE_SERVER=${PULSE_SERVER}
+      - CYCLONEDDS_URI=/root/.ros/cyclonedds.xml
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
+      - ../rbe_capstone:/root/ws/src/rbe_capstone
+      - ../docker/ros_entrypoint.sh:/ros_entrypoint.sh
+    working_dir: /root/ws
+    command: bash
+    stdin_open: true
+    tty: true

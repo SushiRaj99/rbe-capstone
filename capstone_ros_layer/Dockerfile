@@ -57,5 +57,6 @@ RUN echo "colconbuild()\n{\n\tpushd /root/ws >/dev/null && colcon build \"\$@\" 
 RUN echo "alias colconclean='pushd /root/ws >/dev/null && rm -rf build install log && popd > /dev/null'" >> /root/.bashrc
 RUN echo "code()\n{\n\tcode-server \"\$@\" --auth=none --ignore-last-opened\n}" >> /root/.bashrc
 RUN echo "export PATH=\"/opt/.venv/bin:\${PATH}\"" >> /root/.bashrc
+RUN echo "init_env" >> /root/.bashrc
 
 RUN /bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml && colcon mixin update"

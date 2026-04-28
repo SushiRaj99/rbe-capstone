@@ -1,107 +1,29 @@
 # RBE-Capstone
 
-## Docker
+## Branch Summary
+This branch deviates from the reinforcement learning (RL) pipeline architecture of the main branch by offering an alternative approach to dynamically tuning the robot's local path planner. More specifically, this branch used the Proximal Policy Optimization (PPO) algorithm to train an agent to configure the ROS2 DWB planner based on down-sampled lidar returns, errors between the goal pose and current pose components, and current velocity components. All dependencies to evaluate and train the agent in this branch are contained within an associated docker image (`ghcr.io/ecwenzlaff/rbe-capstone:0.0.2_ecw`) that's linked in all of the docker-compose files. If it's not already stored locally, the required docker image will automatically be pulled when using the provided docker-compose files. On Windows, this needs to be done by navigating to the `wsl_entrypoint` directory and running the `./run_image_wsl.sh`, because Windows requires exposing additional environment variables and volumes for everything to work (this requires [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) to be installed as pre-requisites.)
 
-A lot of this project will revolve around using docker. Docker is a good fit for us given the different platforms used by the team (Mac/Windows/Linux etc). It helps us set up the dependencies and environment once and make sure we have an apples to apples comparison when working on developing together.
-
-This [tutorial](https://docker-curriculum.com/#docker-compose) is good for explaining why Docker is useful and how to use it.
-
-We are utilizing two layers for building our docker images. The first is the **capstone_ros_layer** - This layer contains the dependencies we install via apt and other sources. Isolating the layer where we install ROS, ROS packages, and other dependencies helps us avoid wasting time when building new images with code changes.
-
-To update the capstone_ros_layer, edit `capstone_ros_layer/Dockerfile`, and build a new image by running `./build_ros_layer.sh`.
-
-**Note** - Windows users will need to run the following command in WSL before using the build scripts (in order to set up multi-platform builds).
-
+## Evaluation Demo
+Once inside a `ghcr.io/ecwenzlaff/rbe-capstone:0.0.2_ecw` container, a demo for the trained agent can be exectued immediately via:
 ```
-docker buildx create --use --name multiarch --driver docker-container
-docker run --privileged --rm tonistiigi/binfmt --install all
-
+ros2 run rl_pipeline demo.sh
 ```
-
-Our code will live in the `rbe_capstone` folder, which gets built and baked into the **rbe_capstone** image. This image gets built on top of the **capstone_ros_layer**. The rbe_capstone image can be built by running the `build_image.sh` script. This image pulls in the code from the rbe_capstone folder, builds it, and then deletes the source code, build logs, and build files from the image. The necessary binaries are preserved in order to make the image as lightweight as possible.
-
-An entrypoint script script and some additions to the Dockerfiles are made in order to source the relevant workspaces, this allows us to use ROS tools and our code as soon as we enter the container.
-
-Separate `docker-compose.yml` files are set up for Windows and Mac, this is needed because different setups are needed for being able to use different visualization tools (like rviz2). The docker compose files mount the working directory into  `/root/ws/src/`, this means that whatever changes you make while working will make their way into the container, making development easier.
-
-## Shut up and tell me how to develop
-
-As mentioned above, our code will live in the rbe_capstone directory. Our code will mostly be contained in ROS2 packages ([tutorial for setting up ROS2 packages](https://docs.ros.org/en/foxy/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html)). You can can modify your code in your usual editor (like VSCode) and build within the container.
-
-You can build all the packages in the workspace with:
-
+The `demo.sh` script is essentially just a wrapper for calling the evaluation launch file (`./rbe_capstone/rl_pipeline/launch/eval.launch.py`) that automatically brings up the evaluation results in gvim when the evaluation process is complete. As a result of this, more in-depth evaluation would involve calling the launch file directly via `ros2 launch` (see `eval.launch.py` file for additional input arguments). Even so, the `demo.sh` script *does* contain additional input arguments for the episode selection seed and number of evaluation episodes. For example, running:
 ```
-cd /root/ws/
-colcon build
-# When we get to the point where we have multiple packages, you can build a single package to save time with
-colcon build --packages-select <package_name>
+ros2 run rl_pipeline demo.sh --seed 46 --num-episodes 1
 ```
+Should display something like this:
+<video autoplay muted playsinline src="./rbe_capstone/rl_pipeline/rl_results/short_ppo_eval_demo.mp4" width="100%" controls> </video>
 
-After building, you can make sure that that your changes are in effect by running
+## Training
+The scope of this project was incredibly ambitious given the time constraints (see reports in the `Report` directory of the main branch for more insight into development); so training iterations were cut short as soon as the results were "good enough" for proof of concept. This means that there's a lot of room left for improvements through hyperparameter tuning and re-training. If retraining is desired, all training is handled through the launch file, `./rbe_capstone/rl_pipeline/launch/train.launch.py`, which comes with it's own set of input arguments for a subset of hyperparameters. It's worth noting that the launch file's current default values reflect the training configuration that was used to generate the results included in the final project report. It's also worth noting that due to divergence late in the training process (see image below), the PPO checkpoint from 10000 steps (`./rbe_capstone/rl_pipeline/rl_checkpoints/ppo_nav2_dwb_10000_steps.zip`) was used to generate the final (best) results:
+<p align="center">
+  <img src="rbe_capstone/rl_pipeline/rl_results/ppo11_rollout_ep_rew_mean.png">
+</p>
 
-```
-cd /root/ws
-source install/setup.bash
-```
-
-## Development Workflow
-
-### Bringing up the container
-
-You can bring up the docker container with the following command
-
-```
-# Mac
-docker compose up -d
-# Windows
-docker compose -f wsl_entrypoint/docker-compose-wsl.yml up -d
-```
-
-### Entering the container
-
-```
-docker exec -it rbe_capstone bash
-```
-
-From there, you can develop your code and build as needed. Whenever you feel that you have made changes that you think are ready to commit to, you can release a new image and push. You can build a new image with
-
-```
-./build_image.sh <optional image tag>
-```
-
-The optional image tag will default to "testing", this means that the new image will be named `ghcr.io/sushiraj99/rbe-capstone:image_tag`
-
-The image used when bringing up the container is set in the docker compose file:
-
-```
-services:
-  rbe_capstone:
-    image: ghcr.io/sushiraj99/rbe-capstone:my_image_tag
-    ...
-```
-
-When you have a new image that we want everyone to start using, you will need to update this line in the docker-compose files. You can push a new image up to the cloud by running:
-
-```
-docker push ghcr.io/sushiraj99/rbe-capstone:my_image_tag
-```
-
-You can see what's in the cloud on GitHub[ here](https://github.com/SushiRaj99?tab=packages&repo_name=rbe-capstone). You can pull down new images with the following command:
-
-```
-docker pull ghcr.io/sushiraj99/rbe-capstone:my_image_tag
-```
-
-If you haven't downloaded an image, starting the container will also pull down the image.
-
-## ROS2 Packages
-
-### Simulation Launch
-
-Basically, what the name says. This package is basically just for launching visualization and simulation. Right now, this holds the setup to visualize the robot, a map and launch RVIZ2 for simulation. This can be launched with:
-
-```
-ros2 launch simulation_launch view_robot.launch.py map_name:="warehouse"
-```
-
-The map_name argument is optional and will default to "warehouse". The maps must be stored in the `simulation_laumch/maps` folder with the format `<map_name>/<map_name>.pgm` and `<map_name>/<map_name>.yaml`. The defaults for the RVIZ2 visualizations are saved in the `rviz folder.
+## Further Development
+As referenced earlier, there's a lot of room left for further improvements. In order to help make development easier, a number of capabilities have been added to the docker image; along with aliases for the image `~/.bashrc`:
+- **`code <filepath>`** &mdash; opens a vscode-server instance (preloaded with the ROS2 library extension) at `<filepath>` (e.g. `code .` will open code-server in the present working directory).
+- **`colconclean`** &mdash; jumps to the workspace directory and cleans all `colcon build` artifacts (e.g. `install/*`, `build/*`, and `log/*`), then jumps back (via `pushd` and `popd`).
+- **`colconbuild <optional pkg name>`** &mdash; jumps to the workspace directory and performs a `colcon build <optional pkg name>`, then jumps back (via `pushd` and `popd`). If no `<optional pkg name>` was supplied, `colcon build` is performed on the entire workspace.
+- **`init_env`** &mdash; sources the ROS distro, the image workspace, and the global python virtual environment for the image. Should always be run after calling `colconbuild` or anytime the Python virtual environment gets deactivated for some reason (may occur as a byproduct of exiting the `demo.sh` script).

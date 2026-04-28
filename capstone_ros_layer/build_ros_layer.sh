@@ -1,10 +1,5 @@
 set -euo pipefail
 
-usage() {
-    echo "Usage: $0 [version]"
-    exit 1
-}
-
 # Default to a testing version for building stuff on the fly
 VERSION="testing"
 loadcmd=()
