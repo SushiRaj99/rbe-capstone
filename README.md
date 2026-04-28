@@ -13,7 +13,7 @@ The `demo.sh` script is essentially just a wrapper for calling the evaluation la
 ros2 run rl_pipeline demo.sh --seed 46 --num-episodes 1
 ```
 Should display something like this:
-<video autoplay muted playsinline src="https://github.com/SushiRaj99/rbe-capstone/blob/ecw_tinkering/rbe_capstone/rl_pipeline/rl_results/short_ppo_eval_demo.mp4" width="100%" controls> </video>
+<video autoplay muted playsinline src="https://github.com/user-attachments/assets/32a324d6-998d-4b12-8957-1c78a59cacb3" width="100%" controls> </video>
 
 ## Training
 The scope of this project was incredibly ambitious given the time constraints (see reports in the `Report` directory of the main branch for more insight into development); so training iterations were cut short as soon as the results were "good enough" for proof of concept. This means that there's a lot of room left for improvements through hyperparameter tuning and re-training. If retraining is desired, all training is handled through the launch file, `./rbe_capstone/rl_pipeline/launch/train.launch.py`, which comes with it's own set of input arguments for a subset of hyperparameters. It's worth noting that the launch file's current default values reflect the training configuration that was used to generate the results included in the final project report. It's also worth noting that due to divergence late in the training process (see image below), the PPO checkpoint from 10000 steps (`./rbe_capstone/rl_pipeline/rl_checkpoints/ppo_nav2_dwb_10000_steps.zip`) was used to generate the final (best) results:
