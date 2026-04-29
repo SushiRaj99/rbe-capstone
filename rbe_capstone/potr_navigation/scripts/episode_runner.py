@@ -213,6 +213,7 @@ class EpisodeRunner(Node):
                 self.do_map_switch(map_name)
             else:
                 self.do_respawn(episode['start'])
+                self.clear_costmaps()
                 self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(seconds=SETTLE_SECS)
                 self.rl_state = S_SETTLING
 
