@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Drives the episode lifecycle: respawn, send goal, await result, publish metrics."""
 import rclpy
 import copy
 import json
@@ -21,6 +22,7 @@ from simulation_launch.action import SendGoalToNav2
 
 
 def quat_to_yaw(q) -> float:
+    """Extract yaw from a geometry_msgs Quaternion."""
     return math.atan2(
         2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z),
@@ -39,7 +41,12 @@ RUN_CONFIGS = [
     ('MPPI', 2),
 ]
 
-# Run loop states
+# Run loop states. The full sequence is:
+#   INIT -> SWITCHING_PLANNER -> START_EPISODE -> (MAP_SWITCHING ->) SETTLING
+#        -> GOAL_ACTIVE -> GETTING_METRICS -> START_EPISODE (next episode)
+#        ...                                  -> SWITCHING_PLANNER (next config)
+# In RL mode, INIT instead routes to WAITING_FOR_RL until the bridge calls
+# /start_episode, after which we follow the same SETTLING -> GOAL_ACTIVE path.
 S_INIT              = 'INIT'
 S_SWITCHING_PLANNER = 'SWITCHING_PLANNER'
 S_START_EPISODE     = 'START_EPISODE'
@@ -50,11 +57,12 @@ S_GETTING_METRICS   = 'GETTING_METRICS'
 S_WAITING_FOR_RL    = 'WAITING_FOR_RL'
 S_DONE              = 'DONE'
 
-SETTLE_SECS = 2.0   # seconds to wait after respawn before sending goal
-MAP_SWITCH_EXTRA_SECS = 1.5
+SETTLE_SECS = 2.0              # seconds to wait after respawn before sending the goal
+MAP_SWITCH_EXTRA_SECS = 1.5    # extra settle time after a map switch
 
 
 def decode_nav2_status(status_code: int) -> str:
+    """Convert Nav2's GoalStatus integer code to its human-readable label."""
     decoder = {
         0: "UNKNOWN", 1: "ACCEPTED", 2: "EXECUTING",
         3: "CANCELING", 4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED",
@@ -63,6 +71,17 @@ def decode_nav2_status(status_code: int) -> str:
 
 
 class EpisodeRunner(Node):
+    """
+    Drives the test loop. Two operating modes:
+        - Sweep mode: iterates over RUN_CONFIGS x episode list, switching
+          planners and presets between configs.
+        - RL mode (rl_mode:=true): waits for the RL bridge to trigger each
+          episode via /start_episode, supports cancellation via
+          /cancel_episode (used on collision).
+    Also exposes the `send_goal_to_nav2` action for ad-hoc external goals
+    that bypass the run loop.
+    """
+
     def __init__(self):
         super().__init__('episode_runner')
         self.cb_group = ReentrantCallbackGroup()
@@ -108,6 +127,7 @@ class EpisodeRunner(Node):
         self.metrics_pub      = self.create_publisher(EpisodeMetrics,  '/potr_navigation/episode_metrics', 10)
         self.current_goal_pub = self.create_publisher(Pose,            '/potr_navigation/current_goal', 10)  # read by metrics_tracker
         self.create_service(Trigger, '/potr_navigation/start_episode', self.handle_start_episode, callback_group=self.cb_group)
+        self.create_service(Trigger, '/potr_navigation/cancel_episode', self.handle_cancel_episode, callback_group=self.cb_group)
 
         # Run loop state
         self.nav2_active      = False
@@ -119,6 +139,7 @@ class EpisodeRunner(Node):
         self.rl_settle_until  = None
         self.rl_nav_status    = None   # set by goal result callback
         self.rl_switch_called = False  # prevents re-entry while waiting for planner switch callback
+        self.episode_goal_ptr = None   # current Nav2 goal handle for the rl_mode episode (so it can be cancelled on collision)
 
         # Action server goal tracking (separate from run loop)
         self.action_nav2_goal_ptr = None
@@ -131,6 +152,7 @@ class EpisodeRunner(Node):
         self.get_logger().info(f'Episode runner ready — {len(RUN_CONFIGS)} run configs')
 
     def run_loop_tick(self) -> None:
+        """Single tick of the run-loop state machine. See state diagram above."""
         if not self.nav2_active:
             return
 
@@ -191,6 +213,7 @@ class EpisodeRunner(Node):
                 self.do_map_switch(map_name)
             else:
                 self.do_respawn(episode['start'])
+                self.clear_costmaps()
                 self.rl_settle_until = self.get_clock().now() + rclpy.duration.Duration(seconds=SETTLE_SECS)
                 self.rl_state = S_SETTLING
 
@@ -274,7 +297,12 @@ class EpisodeRunner(Node):
             client.call_async(ClearEntireCostmap.Request())
 
     def do_respawn(self, start: dict) -> None:
-        # start coordinates are in map frame; convert to odom frame
+        """
+        Teleport the robot back to the episode's start pose.
+        The episode's start coordinates live in map frame, so we subtract
+        the static map->odom offset to get the equivalent odom-frame pose
+        before publishing it to the simulation.
+        """
         ox = self.get_parameter('map_to_odom_x').value
         oy = self.get_parameter('map_to_odom_y').value
         pose = Pose2D()
@@ -328,10 +356,13 @@ class EpisodeRunner(Node):
             self.rl_nav_status = 'REJECTED'
             return
         self.get_logger().info('Episode goal accepted')
+        # Save the handle so the RL bridge can request cancellation on collision.
+        self.episode_goal_ptr = goal_ptr
         result_future = goal_ptr.get_result_async()
         result_future.add_done_callback(self.on_episode_goal_done)
 
     def on_episode_goal_done(self, future) -> None:
+        self.episode_goal_ptr = None
         try:
             self.rl_nav_status = decode_nav2_status(future.result().status)
         except Exception as e:
@@ -368,14 +399,14 @@ class EpisodeRunner(Node):
             self.get_logger().error(f'get_metrics failed: {e}')
         rl_mode = self.get_parameter('rl_mode').value
         if rl_mode:
-            # Wrap episode index so training can run indefinitely
+            # Wrap the episode index so training can run indefinitely.
             self.rl_episode_index = (self.rl_episode_index + 1) % len(self.rl_episodes)
             self.rl_state = S_WAITING_FOR_RL
         else:
             self.rl_episode_index += 1
             self.rl_state = S_START_EPISODE
 
-    def handle_start_episode(self, req, res):
+    def handle_start_episode(self, req: Trigger.Request, res: Trigger.Response) -> Trigger.Response:
         if self.rl_state != S_WAITING_FOR_RL:
             res.success = False
             res.message = f'Not waiting for RL trigger (state={self.rl_state})'
@@ -388,6 +419,23 @@ class EpisodeRunner(Node):
         self.rl_state = S_START_EPISODE
         res.success = True
         res.message = f'Starting episode {self.rl_episode_index}'
+        return res
+
+    def handle_cancel_episode(self, req: Trigger.Request, res: Trigger.Response) -> Trigger.Response:
+        """
+        Service handler for /cancel_episode. Called by the RL bridge when a
+        collision is detected. Cancels the active Nav2 goal so the run loop
+        transitions to S_GETTING_METRICS and emits a final EpisodeMetrics
+        message, which the RL env then reads as the 'done' signal.
+        """
+        if self.episode_goal_ptr is None:
+            res.success = False
+            res.message = 'No active episode goal to cancel'
+            return res
+        self.get_logger().info('RL collision: cancelling active episode goal')
+        self.episode_goal_ptr.cancel_goal_async()
+        res.success = True
+        res.message = 'Cancellation requested'
         return res
 
     def check_nav2_active(self) -> None:
@@ -415,6 +463,12 @@ class EpisodeRunner(Node):
         self.goal_transmitted: bool = False
 
     def manage_send_goal(self, goal_ptr: ServerGoalHandle) -> SendGoalToNav2.Result:
+        """
+        ActionServer callback for the external `send_goal_to_nav2` action.
+        Cancels any in-flight goal, latches the new request, and blocks until
+        monitor_goal() flags the goal as either reached, cancelled, or
+        terminated by Nav2.
+        """
         request = goal_ptr.request
         self.get_logger().info(
             f"Received goal: id={request.goal_id}, x={request.x}, y={request.y}, yaw={request.yaw}"
@@ -442,6 +496,14 @@ class EpisodeRunner(Node):
         return final_result
 
     def monitor_goal(self) -> None:
+        """
+        Periodic tick that drives the action-server side of the node:
+            1. If no Nav2 goal is in flight yet for this request, send one.
+            2. Compute current xy / yaw error from TF and publish feedback.
+            3. If the requester cancelled, cancel the underlying Nav2 goal too.
+            4. If we're inside the user's tolerance, return success early.
+            5. Otherwise wait for Nav2 to terminate the goal naturally.
+        """
         if self.sendgoal_goal_ptr is None:
             return
         if not self.nav2_active:
@@ -516,6 +578,11 @@ class EpisodeRunner(Node):
         self.action_nav2_status = decode_nav2_status(future.result().status)
 
     def compute_errors(self) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Look up the current map->base_link TF and return (xy_error, yaw_error)
+        relative to the latched action goal. Returns (None, None) when no goal
+        is active or TF lookup fails.
+        """
         xy_error, yaw_error = None, None
         if (self.action_nav2_goal_ptr is None) or not self.goal_id:
             return xy_error, yaw_error

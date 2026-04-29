@@ -34,12 +34,11 @@ controller_server:
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
-    # First plugin in this list is what the stock BT's FollowPath action routes
-    # to by default (no controller_id set on goals). Flip the order when
-    # switching which planner you're training:
-    #   DWB  training → ["FollowPathDWB", "FollowPath"]
-    #   MPPI training → ["FollowPath", "FollowPathDWB"]
-    controller_plugins: ["FollowPathDWB", "FollowPath"]
+    # The stock Nav2 BT routes its FollowPath action to a plugin named "FollowPath",
+    # so the DWB plugin is registered under that name (not FollowPathDWB) to ensure
+    # the BT actually uses it. MPPI was previously loaded here under FollowPath but
+    # is fully removed so there's no ambiguity about which controller is active.
+    controller_plugins: ["FollowPath"]
     use_realtime_priority: false
 
     progress_checker:
@@ -54,100 +53,20 @@ controller_server:
       yaw_goal_tolerance: 0.25
 
     # -------------------------------------------------------------------------
-    # MPPI Controller (default)
+    # DWB Controller (registered as "FollowPath" so the stock BT routes here)
     # -------------------------------------------------------------------------
     FollowPath:
-      plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56
-      model_dt: 0.05
-      batch_size: 2000
-      ax_max: 3.0
-      ax_min: -3.0
-      ay_max: 3.0
-      ay_min: -3.0
-      az_max: 3.5
-      vx_std: 0.2
-      vy_std: 0.2
-      wz_std: 0.4
-      vx_max: 0.5
-      vx_min: -0.35
-      vy_max: 0.5
-      wz_max: 1.9
-      iteration_count: 3
-      prune_distance: 1.7
-      transform_tolerance: 0.1
-      temperature: 0.3
-      gamma: 0.015
-      motion_model: "DiffDrive"
-      visualize: true
-      regenerate_noises: true
-      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
-      ConstraintCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 4.0
-      GoalCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 1.4
-      GoalAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.0
-        threshold_to_consider: 0.5
-      PreferForwardCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 0.5
-      CostCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.81
-        near_collision_cost: 253
-        critical_cost: 300.0
-        consider_footprint: false
-        collision_cost: 1000000.0
-        near_goal_distance: 1.0
-        trajectory_point_step: 2
-      PathAlignCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 14.0
-        max_path_occupancy_ratio: 0.05
-        trajectory_point_step: 4
-        threshold_to_consider: 0.5
-        offset_from_furthest: 20
-        use_path_orientations: false
-      PathFollowCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        offset_from_furthest: 5
-        threshold_to_consider: 1.4
-      PathAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 2.0
-        offset_from_furthest: 4
-        threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.0
-        mode: 0
-
-    # -------------------------------------------------------------------------
-    # DWB Controller (fallback)
-    # -------------------------------------------------------------------------
-    FollowPathDWB:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: False
+      # DWB caches several of these at configure() and ignores runtime SetParameters,
+      # so boot values must match the largest reachable value across preset switches.
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.5
+      max_vel_x: 1.5
       max_vel_y: 0.0
-      max_vel_theta: 1.0
+      max_vel_theta: 2.5
       min_speed_xy: 0.0
-      max_speed_xy: 0.5
+      max_speed_xy: 1.5
       min_speed_theta: 0.0
       acc_lim_x: 2.5
       acc_lim_y: 0.0
@@ -155,10 +74,12 @@ controller_server:
       decel_lim_x: -2.5
       decel_lim_y: 0.0
       decel_lim_theta: -3.2
-      vx_samples: 20
-      vy_samples: 5
+      # Boot values match dwb_params.yaml preset_1 so DWB-cached params start in
+      # the preset_1 configuration rather than a hybrid of Nav2 defaults and runtime overrides.
+      vx_samples: 15
+      vy_samples: 1
       vtheta_samples: 20
-      sim_time: 1.7
+      sim_time: 2.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -169,14 +90,14 @@ controller_server:
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
+      PathAlign.forward_point_distance: 0.325
+      GoalAlign.scale: 20.0
       GoalAlign.forward_point_distance: 0.1
       PathDist.scale: 32.0
-      GoalDist.scale: 24.0
+      GoalDist.scale: 20.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      RotateToGoal.lookahead_time: 0.5
 
 local_costmap:
   local_costmap:
@@ -190,7 +111,10 @@ local_costmap:
       height: 3
       resolution: 0.05
       robot_radius: 0.22
-      plugins: ["obstacle_layer", "inflation_layer"]
+      # static_layer was defined but missing from the plugin list, so the local
+      # costmap had no knowledge of walls outside the lidar's raytrace range -
+      # causing DWB to follow the global plan into high-cost regions it couldn't see.
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
@@ -318,8 +242,11 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [1.0, 0.0, 2.0]
-    min_velocity: [-1.0, 0.0, -2.0]
+    # Matches the DWB max_speed_xy boot value so the smoother doesn't bind
+    # below DWB's cap when the policy raises max_linear_vel via action.
+    # planner_controller still narrows this dynamically as the policy moves max_linear_vel.
+    max_velocity: [1.5, 0.0, 2.5]
+    min_velocity: [-1.5, 0.0, -2.5]
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
     odom_topic: "odom"

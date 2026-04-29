@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+"""Subscribes to /odom, /scan, /plan, /current_goal and emits StepMetrics + EpisodeMetrics."""
 import math
 import time
+from typing import List, Optional, Tuple
+
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -23,12 +26,18 @@ def quat_to_yaw(q) -> float:
 
 
 class MetricsTracker(Node):
+    """
+    Tracks per-tick navigation metrics and per-episode aggregates. Emits
+    /step_metrics every odom tick (consumed by the RL bridge) and answers
+    /reset_metrics + /get_metrics service calls from episode_runner.
+    """
+
     def __init__(self):
         super().__init__('metrics_tracker')
         self.cb = ReentrantCallbackGroup()
         self.current_plan = []
-        self.costmap = None          # /local_costmap/costmap  — odom frame, 3×3m rolling, 5Hz
-        self.global_costmap = None   # /global_costmap/costmap — map frame, full map, 1Hz
+        self.costmap = None          # /local_costmap/costmap  - odom frame, 3x3m rolling, 5Hz
+        self.global_costmap = None   # /global_costmap/costmap - map frame, full map, 1Hz
         self.current_goal = None
         self.last_clearance = 0.0
         self.last_path_dev = 0.0
@@ -53,51 +62,77 @@ class MetricsTracker(Node):
         self.get_logger().info('Metrics tracker ready')
 
     def reset_accumulators(self):
+        """Clear all per-episode running stats. Called on /reset_metrics."""
         self.start_time    = time.monotonic()
         self.total_dist    = 0.0
         self.min_clearance = float('inf')
         self.path_devs     = []
         self.last_pos      = None
         self.collision_count = 0
-        # Drop stale plan from last episode
+        # Drop stale plan from the previous episode
         self.current_plan  = []
         self.last_path_dev = 0.0
 
-        # Welford running stats: (n, mean, M2)
+        # Welford running stats: (n, mean, M2). Variance = M2 / (n - 1).
         self.spd_n, self.spd_mean, self.spd_M2 = 0, 0.0, 0.0
         self.hdg_n, self.hdg_mean, self.hdg_M2 = 0, 0.0, 0.0
 
+        # Safety / quality aggregates summed each odom tick.
+        self.clearance_sum = 0.0
+        self.clearance_n = 0
+        self.inflation_steps = 0
+        self.inscribed_steps = 0
+        self.position_samples = 0
+
     def odom_cb(self, msg):
+        """
+        Main per-tick step. For each /odom message:
+            1. Read pose in odom frame and TF it to map frame for plan / goal
+               metrics (with odom fallback when TF is not yet ready).
+            2. Accumulate distance travelled from odom diffs.
+            3. Sample the local costmap at the current cell, bucketing into
+               inflation [30, 100) and inscribed/lethal (>=100).
+            4. Update Welford speed and heading-rate running stats.
+            5. Compute lateral deviation from the global plan.
+            6. Compute distance and heading error to the current goal.
+            7. Compute path-cost windows over the upcoming plan.
+            8. Publish a StepMetrics message for the RL env.
+        """
         # 1. Pose in odom frame (straight from the message)
         odom_x = msg.pose.pose.position.x
         odom_y = msg.pose.pose.position.y
         yaw    = quat_to_yaw(msg.pose.pose.orientation)
 
-        # 2. Pose in map frame — plan and goal both live in map
+        # Pose in map frame - plan and goal both live in map
         try:
             t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
             x = t.transform.translation.x
             y = t.transform.translation.y
         except Exception:
-            # TF not ready — fall back to odom so metrics don't go NaN
+            # TF not ready - fall back to odom so metrics don't go NaN
             x, y = odom_x, odom_y
 
-        # 3. Accumulate distance travelled (odom diffs — TF jitters too much)
+        # 2. Accumulate distance travelled. Use odom diffs because TF jitters.
         if self.last_pos is not None:
             dx = odom_x - self.last_pos[0]
             dy = odom_y - self.last_pos[1]
             self.total_dist += math.sqrt(dx * dx + dy * dy)
         self.last_pos = (odom_x, odom_y)
 
-        # 4. Collision check against local costmap (odom frame)
+        # 3. Sample the local costmap and bucket into inflation / inscribed.
         collision = False
         if self.costmap is not None:
-            if get_costmap_cost(odom_x, odom_y, self.costmap) >= 100:
+            cell_cost = get_costmap_cost(odom_x, odom_y, self.costmap)
+            self.position_samples += 1
+            if cell_cost >= 100:
                 self.collision_count += 1
+                self.inscribed_steps += 1
                 collision = True
+            elif cell_cost >= 30:
+                self.inflation_steps += 1
         self.last_collision = collision
 
-        # 5. Speed + heading-rate running stats (Welford)
+        # 4. Speed + heading-rate running stats (Welford)
         vx = msg.twist.twist.linear.x
         vy = msg.twist.twist.linear.y
         speed = math.sqrt(vx * vx + vy * vy)
@@ -109,7 +144,7 @@ class MetricsTracker(Node):
             self.hdg_n, self.hdg_mean, self.hdg_M2, wz
         )
 
-        # 6. Lateral deviation from the global plan
+        # 5. Lateral deviation from the global plan
         path_dev = 0.0
         if len(self.current_plan) >= 2:
             dev = point_to_path_dist(x, y, self.current_plan)
@@ -118,7 +153,7 @@ class MetricsTracker(Node):
                 path_dev = dev
         self.last_path_dev = path_dev
 
-        # 7. Distance + heading error to goal
+        # 6. Distance + heading error to goal
         dist_to_goal = 0.0
         heading_err  = 0.0
         if self.current_goal is not None:
@@ -128,10 +163,10 @@ class MetricsTracker(Node):
             bearing = math.atan2(gy - y, gx - x)
             heading_err = ((bearing - yaw) + math.pi) % (2 * math.pi) - math.pi
 
-        # 8. Upcoming path-cost windows (near / mid / far)
+        # 7. Upcoming path-cost windows (near / mid / far)
         cost_near, cost_mid, cost_far = self.compute_path_costs(x, y)
 
-        # 9. Publish StepMetrics for the RL env
+        # 8. Publish StepMetrics for the RL env
         s = StepMetrics()
         s.distance_to_goal      = dist_to_goal
         s.heading_error_to_goal = heading_err
@@ -151,15 +186,22 @@ class MetricsTracker(Node):
         s.path_cost_far  = cost_far
         self.step_pub.publish(s)
 
-    def compute_path_costs(self, x_map, y_map):
-        """Max global-costmap cost in three arc-length windows along the
-        upcoming plan: [0, 1], [1, 3], [3, 6] metres. Global costmap because
-        the local one's 3x3m window returns 0 past ~1.5m.
+    def compute_path_costs(self, x_map: float, y_map: float) -> Tuple[float, float, float]:
+        """
+        Return the max global-costmap cost in three arc-length windows along
+        the upcoming plan: [0, 1], [1, 3], and [3, 6] metres. We use the
+        global costmap because the local one's 3x3m rolling window returns 0
+        past ~1.5m.
+
+        Inputs:
+            x_map, y_map: robot position in map frame
+        Returns:
+            (cost_near, cost_mid, cost_far) - max cost in each window
         """
         if self.global_costmap is None or len(self.current_plan) < 2:
             return 0.0, 0.0, 0.0
 
-        # 1. Find closest plan point to the robot
+        # 1. Find the plan point closest to the robot.
         closest_i = 0
         closest_d2 = float('inf')
         for i, (px, py) in enumerate(self.current_plan):
@@ -168,7 +210,7 @@ class MetricsTracker(Node):
                 closest_d2 = d2
                 closest_i = i
 
-        # 2. Walk forward along the plan, bucketing max cost by arc-length
+        # 2. Walk forward along the plan, bucketing max cost by arc-length.
         bins = ((0.0, 1.0), (1.0, 3.0), (3.0, 6.0))
         far_horizon = bins[-1][1]
         maxes = [0, 0, 0]
@@ -190,11 +232,14 @@ class MetricsTracker(Node):
         self.current_goal = msg
 
     def scan_cb(self, msg):
+        """Track min and running-mean obstacle clearance from the laser scan."""
         valid = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
         if valid:
             current = min(valid)
             self.min_clearance = min(self.min_clearance, current)
             self.last_clearance = current
+            self.clearance_sum += current
+            self.clearance_n += 1
 
     def plan_cb(self, msg):
         self.current_plan = [
@@ -215,21 +260,31 @@ class MetricsTracker(Node):
         return res
 
     def handle_get(self, req, res):
+        """
+        Service handler for /get_metrics. Builds an EpisodeMetrics message
+        from the running aggregates and returns it.
+        """
         m = EpisodeMetrics()
         m.total_time          = time.monotonic() - self.start_time
         m.total_distance      = self.total_dist
         m.min_clearance       = self.min_clearance if math.isfinite(self.min_clearance) else 0.0
+        m.mean_clearance      = (self.clearance_sum / self.clearance_n) if self.clearance_n > 0 else 0.0
         m.mean_path_deviation = (sum(self.path_devs) / len(self.path_devs)) if self.path_devs else 0.0
         m.max_path_deviation  = max(self.path_devs) if self.path_devs else 0.0
         m.velocity_variance   = (self.spd_M2 / (self.spd_n - 1)) if self.spd_n > 1 else 0.0
         m.heading_variance    = (self.hdg_M2 / (self.hdg_n - 1)) if self.hdg_n > 1 else 0.0
         m.collision_count     = self.collision_count
+        denom = max(self.position_samples, 1)
+        m.inflation_frac      = self.inflation_steps / denom
+        m.inscribed_frac      = self.inscribed_steps / denom
 
         res.metrics = m
         res.success = True
         res.message = (
             f'time={m.total_time:.1f}s  dist={m.total_distance:.2f}m  '
-            f'clearance={m.min_clearance:.2f}m  dev={m.mean_path_deviation:.3f}m  '
+            f'clearance(min/mean)={m.min_clearance:.2f}/{m.mean_clearance:.2f}m  '
+            f'dev={m.mean_path_deviation:.3f}m  '
+            f'inflation={100*m.inflation_frac:.1f}%  inscribed={100*m.inscribed_frac:.1f}%  '
             f'vel_var={m.velocity_variance:.4f}  hdg_var={m.heading_variance:.4f}  '
             f'collisions={m.collision_count}'
         )
@@ -237,7 +292,7 @@ class MetricsTracker(Node):
         return res
 
 
-def welford(n, mean, M2, x):
+def welford(n: int, mean: float, M2: float, x: float) -> Tuple[int, float, float]:
     """Online mean / M2 update. Variance = M2 / (n - 1)."""
     n += 1
     delta = x - mean
@@ -246,7 +301,7 @@ def welford(n, mean, M2, x):
     return n, mean, M2
 
 
-def get_costmap_cost(px, py, costmap):
+def get_costmap_cost(px: float, py: float, costmap) -> int:
     """Cost at world point (px, py) in the given OccupancyGrid. 0 if OOB."""
     mx = int((px - costmap.info.origin.position.x) / costmap.info.resolution)
     my = int((py - costmap.info.origin.position.y) / costmap.info.resolution)
@@ -255,7 +310,7 @@ def get_costmap_cost(px, py, costmap):
     return costmap.data[my * costmap.info.width + mx]
 
 
-def point_to_path_dist(px, py, path):
+def point_to_path_dist(px: float, py: float, path: List[Tuple[float, float]]) -> Optional[float]:
     """Min distance from (px, py) to a polyline given as list of (x, y)."""
     min_dist = float('inf')
     for i in range(len(path) - 1):

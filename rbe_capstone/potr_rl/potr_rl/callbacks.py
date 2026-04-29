@@ -1,39 +1,59 @@
 #!/usr/bin/env python3
+"""Stable-Baselines3 callback that maintains a live training-metrics plot."""
 import os
+from typing import List
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
 
+# Window size for the rolling-mean overlay drawn on top of every series.
 WINDOW = 10
 
 
 class LivePlotCallback(BaseCallback):
-    def __init__(self, save_path='training_metrics.png', update_every=8, verbose=0):
+    """
+    Collects per-episode stats from the env's info dict and writes a live PNG
+    every `update_every` episodes. Tracks reward, length, entropy coefficient,
+    reward breakdown, termination outcomes, collision fraction, and per-dim
+    mean action.
+    """
+
+    def __init__(self, save_path: str = 'training_metrics.png', update_every: int = 8, verbose: int = 0):
         super().__init__(verbose)
         self.save_path = save_path
         self.update_every = update_every
 
+        # Top-level episode metrics
         self.ep_rewards = []
         self.ep_lengths = []
         self.ent_coefs = []
         self.ep_switches = []
         self.ep_deltas = []
 
+        # Reward-component breakdown
         self.ep_r_progress = []
         self.ep_r_pathdev = []
         self.ep_r_angvel = []
         self.ep_r_proximity = []
-        self.ep_r_time = []
+        self.ep_r_slow = []
         self.ep_r_terminal = []
 
+        # Termination outcome: one of {goal, fail, truncated}
         self.ep_goal = []
         self.ep_fail = []
         self.ep_trunc = []
 
+        # Per-episode safety / proximity stats
         self.ep_collision_frac = []
         self.ep_final_distance = []
+
+        # Per-dim mean action. Populated lazily once we see the first
+        # continuous-mode info dict so action_names and shape are known.
+        self.action_names = None
+        self.ep_action_means = None
 
         self.n_episodes = 0
 
@@ -58,7 +78,7 @@ class LivePlotCallback(BaseCallback):
                 self.ep_r_pathdev.append(float(ep_info['r_pathdev']))
                 self.ep_r_angvel.append(float(ep_info['r_angvel']))
                 self.ep_r_proximity.append(float(ep_info['r_proximity']))
-                self.ep_r_time.append(float(ep_info.get('r_time', 0.0)))
+                self.ep_r_slow.append(float(ep_info.get('r_slow', 0.0)))
                 self.ep_r_terminal.append(float(ep_info['r_terminal']))
                 self.ep_collision_frac.append(float(ep_info['collision_frac']))
                 self.ep_final_distance.append(float(ep_info['final_distance']))
@@ -66,6 +86,13 @@ class LivePlotCallback(BaseCallback):
                 self.ep_goal.append(1 if reason == 'goal' else 0)
                 self.ep_fail.append(1 if reason == 'fail' else 0)
                 self.ep_trunc.append(1 if reason == 'truncated' else 0)
+
+            if 'action_mean' in ep_info:
+                if self.ep_action_means is None:
+                    self.action_names = list(ep_info['action_names'])
+                    self.ep_action_means = [[] for _ in self.action_names]
+                for i, val in enumerate(ep_info['action_mean']):
+                    self.ep_action_means[i].append(float(val))
 
             vals = self.model.logger.name_to_value
             if 'train/ent_coef' in vals:
@@ -79,7 +106,8 @@ class LivePlotCallback(BaseCallback):
     def on_training_end(self):
         self.save_plot()
 
-    def rolling(self, data):
+    def rolling(self, data: List[float]) -> np.ndarray:
+        """Return a `WINDOW`-length rolling mean of `data` (mode='valid')."""
         kernel = np.ones(WINDOW) / WINDOW
         return np.convolve(data, kernel, mode='valid')
 
@@ -92,7 +120,8 @@ class LivePlotCallback(BaseCallback):
         has_breakdown = bool(self.ep_r_progress)
         has_termination = bool(self.ep_goal)
         has_extras = bool(self.ep_collision_frac)
-        n_plots = 2 + int(has_termination) + int(has_breakdown) + int(has_extras) + int(has_ent) + int(has_switches)
+        has_actions = self.ep_action_means is not None and bool(self.ep_action_means[0])
+        n_plots = 2 + int(has_termination) + int(has_breakdown) + int(has_extras) + int(has_actions) + int(has_ent) + int(has_switches)
 
         fig, axes = plt.subplots(n_plots, 1, figsize=(12, 3.2 * n_plots))
         fig.suptitle(f'Training - {self.n_episodes} episodes  ({self.num_timesteps} steps)', fontsize=13)
@@ -148,7 +177,7 @@ class LivePlotCallback(BaseCallback):
                 ('path_dev', self.ep_r_pathdev, 'goldenrod'),
                 ('ang_vel', self.ep_r_angvel, 'purple'),
                 ('proximity', self.ep_r_proximity, 'firebrick'),
-                ('time', self.ep_r_time, 'gray'),
+                ('slow', self.ep_r_slow, 'gray'),
                 ('terminal', self.ep_r_terminal, 'seagreen'),
             ]
             for name, series, color in components:
@@ -180,6 +209,23 @@ class LivePlotCallback(BaseCallback):
                 ax2.plot(np.arange(WINDOW, len(self.ep_final_distance) + 1), self.rolling(self.ep_final_distance), color='darkcyan', linewidth=1.8, label='final dist (m)')
             ax2.set_ylabel('Final distance to goal (m)', color='darkcyan')
             ax2.tick_params(axis='y', labelcolor='darkcyan')
+
+        # Per-dim mean action (raw policy output, pre-EMA).
+        # 0 corresponds to the baseline value, +1 to range max, -1 to range min.
+        if has_actions:
+            ax = axes[next_ax]
+            next_ax += 1
+            for name, series in zip(self.action_names, self.ep_action_means):
+                if len(series) >= WINDOW:
+                    xs = np.arange(WINDOW, len(series) + 1)
+                    ax.plot(xs, self.rolling(series), linewidth=1.6, label=name)
+                else:
+                    ax.plot(np.arange(1, len(series) + 1), series, alpha=0.6, label=name)
+            ax.axhline(0, color='gray', linewidth=0.5, linestyle='--')
+            ax.set_ylim(-1.1, 1.1)
+            ax.set_ylabel('Mean action (raw)')
+            ax.legend(loc='upper right', fontsize=8, ncol=3)
+            ax.grid(True, alpha=0.3)
 
         # Entropy coef
         if has_ent:

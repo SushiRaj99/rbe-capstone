@@ -15,6 +15,9 @@ float64 goal_yaw             # (rad)
 
 # Safety
 float64 min_clearance          # Minimum obstacle clearance recorded from /scan (m)
+float64 mean_clearance         # Mean obstacle clearance from /scan over the episode (m)
+float64 inflation_frac         # Fraction of ticks where robot's costmap cell was in inflation halo [30, 100)
+float64 inscribed_frac         # Fraction of ticks where robot's costmap cell was at/past inscribed (>=100)
 
 # Accuracy
 float64 mean_path_deviation    # Mean lateral deviation from global path /plan (m)
