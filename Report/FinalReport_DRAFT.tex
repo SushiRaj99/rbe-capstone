@@ -275,17 +275,63 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 \section{Experimentation}
 % Hopefully prof. will clarify what the intention of this section is. I interpretted this section more of a "Here's all the stuff we tried"; but it's reasonably interpretted below as "Here's how we obtained our results". Either way, it's weird that it has its own dedicated section.
     \subsection{Standard Path Planners}
-    To generate an accurate baseline and determine the effectiveness of the RL agent, ----XX---- simulations were run with the off-the-shelf MPPI
-    planner and DWB planner. Each simulation was evaluated for clearance, accuracy, efficiency, and smoothness and the results for both can be seen
-    below. The MPPI had an average -----Placeholder for raw data -----
-    -----TABLE / GRAPHICS ---------.
+    In order to determine the feasibility of constantly tuning planner parameters, the system was first tested by manually switching between two parameter sets for 
+    both MPPI and DWB. While DWB was able to handle the parameter changes without issue, MPPI struggled to keep moving when parameters were adjusted. This is due 
+    to the fact that MPPI relies on a sampling-based approach to generate its path, and when parameters are changed, the samples that were previously valid may no longer be valid, 
+    causing the planner to struggle to find a new path. Every time the parameter sets were changed, the robot would come to a stop, and then the planner would 
+    slowly resume planning motion. This is not ideal, and dramatically slows down the navigation process, defeating the purpose of this project. It may very well be possible to 
+    mitigate this issue, the team decided to concentrate focus on the RL agent, and DWB was ultimately chosen to be the only planner that the RL agent would be trained on. 
+    DWB is a more traditional local planner that relies on a costmap-based approach, and it is able to handle parameter changes more gracefully than MPPI. 
+    This is because DWB generates its path based on the costmap, which is updated in real-time as the robot moves through the environment. 
+    As a result, when parameters are changed, DWB can quickly adapt to the new costmap and continue planning without significant disruption.
     
-    \subsection{RL-Trained Planners}
-    For the RL agent, it was first trained ----XX---- and then deployed in the same environments as the above planners. The path was then evaluated
-    against the same four qualifies and comparisons were drawn.
-    -----Placeholder for data -----
-    -----TABLE / GRAPHICS ---------.
-    A detailed analysis of the data can be seen below in the Results section.
+    \subsection{RL-Trained Planner: SAC Policy Agent}
+
+    \subsubsection{SAC \& DWB Parameters Tuned}
+    Four DWB parameters were selected for tuning to keep the action space small and learning tractable. Maximum linear velocity
+    controls how fast the robot can move and has a direct effect on efficiency. Obstacle scale controls how aggressively DWB
+    avoids obstacles when scoring candidate trajectories, governing the tradeoff between clearance and speed.
+
+    The other two are meta-parameters: path weight and goal weight. Rather than tuning DWB's four critic scales independently,
+    each meta-parameter scales a correlated pair together --- path weight adjusts both path-following critics simultaneously,
+    and goal weight adjusts both goal-seeking critics. This keeps the action space small without giving up meaningful control,
+    since the two critics in each pair always push in the same direction anyway.
+
+    \subsubsection{State and Action Space Design}
+    The agent observes 12 values at each timestep: eight navigation state values and four values representing the agent's own
+    currently active parameter settings. The navigation state includes three path-cost lookahead values sampled from the Nav2
+    costmap along the upcoming plan (covering roughly 1\,m, 3\,m, and 6\,m ahead), distance and heading error to the goal,
+    linear velocity, angular velocity, and lateral deviation from the global plan. Raw LiDAR was excluded because the costmap
+    lookahead already captures obstacle proximity in a form the planner directly acts on, and a smaller observation keeps
+    learning more tractable. The agent's own smoothed parameter values are appended to the observation so the policy can see
+    what settings are currently active in the planner.
+
+    The action space is four continuous values, one per tunable parameter. The raw policy output is smoothed with an exponential
+    moving average before being decoded into physical values and applied to Nav2, which prevents rapid swings from disrupting
+    DWB mid-episode. Obstacle scale is decoded on a log scale since its useful range spans two orders of magnitude; the other
+    three parameters are decoded linearly.
+
+    \subsubsection{Reward Function Design and Tuning}
+    The reward function was adjusted several times during training to address observed failure modes. The core signal is a
+    progress reward for reducing distance to the goal each timestep, with smaller penalties on path deviation and angular
+    velocity to encourage smooth, on-plan behavior. A graduated proximity penalty also activates when the planned path ahead
+    enters an inflated obstacle region, growing as the path gets closer to the obstacle.
+
+    Two terms were added during tuning. A direct collision penalty was added after observing that the proximity penalty alone
+    was not a strong enough deterrent when the robot actually entered an obstacle cell. A slow-pace penalty was added to
+    address cases where the agent learned to creep slowly through open areas --- it only fires when the robot is far from the
+    goal and well clear of obstacles, so it does not punish legitimate slowdowns near corners or as the robot approaches
+    the goal.
+
+    The original flat time penalty per timestep was replaced with a per-goal time-delta terminal reward that compares the
+    agent's completion time against a pre-collected baseline time for that specific goal. This prevents longer routes from
+    automatically producing larger penalties just because they take more time. Baseline times are gathered by running the
+    fixed preset-1 configuration through all goal configurations before training begins. At episode end, a goal bonus of
+    $+100$ is awarded for success and a failure penalty of $-50$ is applied otherwise. A collision also immediately ends
+    the episode with the failure penalty rather than letting navigation continue, since recovery behavior from a collision
+    tends to be erratic and unhelpful for training.
+
+    \subsubsection{RL-Trained Planner:PPO Policy Agent}
 
 \section{Results}
 After conduction all -----NUMBER---- of experiments with both standard and RL-driven planners, it was made clear that -----BIG CONCLUSIVE RESULT-----
