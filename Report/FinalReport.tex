@@ -542,7 +542,29 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     The reward function design also has a potential issue to be addressed in future work. The reward function is set up for the policy to learn the most in scenarios where the standard DWB planner struggles. This is because the reward function rewards the policy for beating the time of the baseline DWB planner in a given episode, so the policy has more to gain by improving performance on episodes where the baseline DWB planner gets the robot stuck and takes a long time to free itself. While this helps the robot achieve a higher success rate on more difficult episodes, it could be the cause of the policy's average episode completion time being very slightly higher than the baseline's.
     
     \subsection{Future Work}
-    % Adding more path planners & the ability to switch between, trying a different RL agent policy (?) adding dynmaic obstacles, expanding to 3D / Gazebo
+    Looking to future applications of RL-enhanced path planning along side the work that has already been investigated in this report, one of the next logical steps is to implement
+    a wider range of path planning algorithms such as Dijkstra's, A*, rapidly-exploring random tree (RRT), breadth or depth first search (BFS, DFS) or others in order to see if
+    there would benefits of augmenting them with an on-policy or off-policy RL agent. The addition of other path planners would also encourage the development of a planner switch.
+    This is something that was originally discussed as a goal for this project, but it was decided to explore varied RL agents instead. Given that there is now a base of two different
+    RL approaches, the simulation would need to be updated to account for the correct hyperparameter that each planner would need, but with the rest of the structure being already built
+    as adaptable around that, the major changes would be in the navigator config yaml file(s).
+    
+    Future work should also revisit the reward function design. As discussed above, the current reward function unintentionally rewards the agent more for outperforming the baseline on
+    difficult episodes more than than on simple ones, which distorts the agents learning. Multi‑objective reward shaping, adaptive weighting, or learned reward models could produce more
+    stable and reliable behavior while ensuring that improvements are meaningful across all episode types.
+
+    With the addition of more path planners, a switching option could be implemented wherein the agent could select the best path planner for a crowded or more dynamic section of a map, utilize
+    it, then switch to a more lightweight one later on. This would require a much more in-dept and expanded hyperparameter base as touched on above, but could prove beneficial if overall
+    computational load could be reduced. Another important extension is incorporating physics‑accurate simulation and dynamic obstacles. The current environment does not model robot or load
+    inertia, wheel slip, or moving obstacles, which limits the realism of the agent behavior. Integrating a physics simulator such as Gazebo would allow the agent to learn parameter‑tuning
+    strategies that account for real‑world motion constraints on top of dynamic interactions with pedestrians, forklifts, or other robots.
+    
+    Lastly, as this project was planning to utilize multiple 2D maps, however with the other modifications to the scope, it was deem that it should only focus on a single map as a proof of
+    concept. The first step towards a more realistic result would be the training of the agents on multiple heterogeneous maps. The maps should vary in size, complexity, isle size, as well as continue to
+    use the randomly generated start and goal points / poses. In that same line of thinking, this projects' map was a low-clutter, 2D, static environment, therefore putting these same agents
+    in crowded and / or dynamic traffic environments would be a step towards realistic deployment. Warehouses are full of people, forklifts, and clutter so testing in a sterile environment
+    (as was done in this simulation) is a great start, but does not accurately describe real-world implementation. Additionally, with dynamic obstacles and multiple maps, it may become more
+    clear if either the PPO or SAC agents find more of an advantage over standard planners and extend the marginally positive results seen in this project.
 
 \newpage
 \begin{thebibliography}{00}
