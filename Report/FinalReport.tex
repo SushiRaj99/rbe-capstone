@@ -193,13 +193,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     \subsection{RL Architecture}
     The RL component of the project is a trainable agent that tunes planner parameters directly through the Nav2 stack. Independent from the
     specific path planning algorithm and RL learning algorithm, two design options were initially explored for overall architecture of the states and actions: a one-time parameter tune, or a
-    dynamic parameter tuning. It was decided that the implementation and expected results of a dynamic RL application would be favorable and feasible
-    within the scope of this project. With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters throughout
-    the navigation process; where the agent's state (observation) vector at each time step includes information about what the robot can perceive (e.g. current pose, velocity, distance from the goal, obstacle cost
-    of the surrounding environment, etc.), and the agent's action vector is responsible for adjusting the planner parameters (via a continuous action space) at each timestep. To support frequent
-    observations and actions throughout the navigation process, the reward function is designed to encourage efficient, smooth, and safe navigation by providing
-    positive rewards for progress towards the goal and negative rewards for collisions, long travel times, and time spent in close proximity to obstacles. The
-    goal of these rewards is to encourage the agent to learn how to guide the robot through crowded environments as smoothly and quickly as possible.
+    dynamic parameter tuning. It was decided that the implementation and expected results of a dynamic RL application would be favorable and feasible within the scope of this project. With this approach, the RL agent would be responsible for dynamically tuning the local planner's parameters throughout the navigation process; where the agent's state (observation) vector at each time step includes information about what the robot can perceive (e.g. current pose, velocity, distance from the goal, obstacle cost of the surrounding environment, etc.), and the agent's action vector is responsible for adjusting the planner parameters (via a continuous action space) at each timestep. To support frequent observations and actions throughout the navigation process, the reward function is designed to encourage efficient, smooth, and safe navigation by providing positive rewards for progress towards the goal and negative rewards for collisions, long travel times, and time spent in close proximity to obstacles. The goal of these rewards is to encourage the agent to learn how to guide the robot through crowded environments as smoothly and quickly as possible.
 
         \subsubsection{Training Framework}
         Training is driven by the Stable-Baselines3 (SB3) library, which interfaces with the simulation through a custom Gymnasium environment.
@@ -238,7 +232,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         
         \begin{figure}[H]
             \centering
-            \includegraphics[scale=0.65]{./tensorboard_example.png}
+            \includegraphics[width=\columnwidth]{./tensorboard_example.png}
             \caption{TensorBoard plot from PPO training before (blue--PPO\_10) and after (orange--PPO\_11) resolving a bug where episodes with aborted Nav2 path plans were rewarded with the same bonus as episodes which successfully reached the goal. Since drastically different results were given the same reward across episodes, the agent was confused about which actions were ``better'' and learning was ultimately stifled.}
             \label{fig:tb_example}
         \end{figure}
@@ -373,8 +367,15 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
     \subsection{RL-Trained Planner:PPO Policy Agent}
         \subsubsection{State and Action Space Design}
-        The PPO agent observation space was designed to include information about ``what the robot sees'', ``where the robot thinks it is'', and ``where the robot thinks it's going''. For what the robot sees, the state vector includes space for a predefined set of $N$ downsampled lidar ranges and bearings. However, instead of downsampling the lidar measurements in fixed increments around the robot, the lidar rays were divided into $N$ segments; where the minimum range measurements and associated bearing angles are extracted from each individual segment. This ensures that lidar measurements associated with the closest features surrounding the robot make it into the state vector and are not ``missed'' or sampled out. The lidar segment design is illustrated in Figure \_ below.
-        % placeholder for figure
+        The PPO agent observation space was designed to include information about ``what the robot sees'', ``where the robot thinks it is'', and ``where the robot thinks it's going''. For what the robot sees, the state vector includes space for a predefined set of $N$ downsampled lidar ranges and bearings. However, instead of downsampling the lidar measurements in fixed increments around the robot, the lidar rays were divided into $N$ segments; where the minimum range measurements and associated bearing angles are extracted from each individual segment. This ensures that lidar measurements associated with the closest features surrounding the robot make it into the state vector and are not ``missed'' or sampled out. The lidar segment design is illustrated in Figure \ref{fig:lidsegs}.
+
+        \begin{figure}[H]
+            \centering
+            \includegraphics[width=\columnwidth]{./lidar_segments.png}
+            \caption{Lidar segment design illustration. As part of this illustration, the turtlebot (dark grey center circle) is located between 3 obstacles (light grey rectangles). The turtlebot's span of lidar scans (light blue circle) are broken up into 8 segments (dark blue slices). Within each lidar segment, the lidar scan with the minimum range (red dashed lines) would be inserted into the state vector. For segments that don't have a distinct minimum lidar range, the first clockwise lidar scan would be inserted into the state vector.}
+            \label{fig:lidsegs}
+        \end{figure}
+
         For where the robot thinks it is, the state vector included the error components for $x$, $y$, and yaw. The error components were selected over the global frame components for $x$, $y$, and yaw as an attempt to minimize the dimensionality of the state vector; because the agent would either require knowledge of the goal pose, or require knowledge of the map itself, in order to make sense of the global frame components. And from a function approximation perspective, it makes more sense intuitively to determine actions based on how far away the robot is from the goal over where the robot is located within a given map. This is especially true when the same global coordinates represent entirely different states across different maps. For where the robot thinks it's going, the state vector included the elements for the linear and angular velocity components of the robot. Since the Turtlebot that we're trying to control is a differential drive robot, the velocity components can be represented concisely by a single forward velocity term, $v$, and a single steering velocity term, $\omega$. All together, the state vector took the following form:
         \begin{gather*}
             s =
@@ -512,59 +513,108 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     \label{fig:variance}
     \end{figure}
 
+    \subsection{RL-Trained Planner: PPO Policy Agent}
+    The PPO agent was trained for 20,000 steps with various start and goal configurations spread across 3 different maps. The training performance is highlighted in Figures~\ref{fig:ppo_train_rew} through ~\ref{fig:ppo_train_loss}.
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[width=\columnwidth]{./ppo_figures/training_ep_rewards.png}
+        \caption{TensorBoard plot of the mean (rolling average over 100 episodes) episode rewards over the entire span of training (left). Since the reward began to significantly diverge sometime after 10,000 steps, the 10,000 step checkpoint was used during evaluation; so the effective training curve is clipped from the entire span and highlighted in blue (right). Over the 10,000 steps, the reward oscillates but generally trends upward, indicating that the PPO policy is learning improved configurations over the baseline.}
+        \label{fig:ppo_train_rew}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[width=\columnwidth]{./ppo_figures/training_ep_lengths.png}
+        \caption{TensorBoard plot of the mean (rolling average over 100 episodes) episode length (in terms of steps) over the entire span of training (left). Divergence after 10,000 steps aligns with Figure~\ref{fig:ppo_train_rew}, so the effective training curve is also clipped and highlighted in blue here (right). Over the 10,000 steps, the total number of steps per episode noticeably trends downward, indicating that the PPO policy is specifically learning more efficient paths to the goal over the baseline.}
+        \label{fig:ppo_train_len}
+    \end{figure}
+
+    \begin{figure}[H]
+        \centering
+        \includegraphics[width=\columnwidth]{./ppo_figures/training_total_loss.png}
+        \caption{TensorBoard plot of the total loss over the entire span of training (left). This encompasses all components of loss, including the actor's policy gradient loss and the critic's value loss; and is generally a good indicator of how effectively the agent is learning to maximize rewards while maintaining stability. However, when considering the divergence after 10,000 steps captured in Figures~\ref{fig:ppo_train_rew} and ~\ref{fig:ppo_train_len}, the curve over the entire span of training can be a bit misleading. The total loss may appear to significantly improve after 10,000 episodes, but this is because the total loss is dominated by the critic network's value loss. After 10,000 steps, the policy diverges to making poor decisions, and the critic begins to accurately assess the low reward values of the chosen actions. This is why the reward curve can appear to degrade while the loss curve appears to improve. Regardless, the clipped loss over the 10,000 steps (right) does noticeably trend downward, indicating that the PPO policy does learn to accurately map actions to their expected rewards and specifically take actions that maximize the reward.}
+        \label{fig:ppo_train_loss}
+    \end{figure}
+
+    It's clear from the training performance that the PPO agent's policy matured over the span of 10,000 episodes; after which it began to degrade. So instead of using the final state saved at the end of training, the PPO agent's 10,000 step checkpoint was used during evaluation. Evaluation was performed for the fixed DWB preset baseline and the trained PPO agent over the same deterministically generated set of 200 episodes. The results are summarized in Table \ref{tab:ppo_summary}.
+    
+    \begin{table}[H]
+        \centering
+        \caption{Evaluation of DWB preset vs. PPO agent}\label{tab:ppo_summary}
+        \begin{tabular}{lccc}
+            \hline
+            \textbf{Metric} & \textbf{Baseline} & \textbf{PPO Agent} & \textbf{Delta} \\
+            \hline
+            Episodes                & 200       & 200       &               \\
+            Success rate            & 86.0\%    & 91.0\%    & $+5\%$        \\
+            Collision rate          & 3.0\%     & 0.5\%     & $-2.5\%$      \\
+            Timeout rate            & 4.0\%     & 4.0\%     &               \\
+            Stuck rate              & 7.0\%     & 4.5\%     & $-2.5\%$      \\
+            Mean reward             & 183.16    & 196.73    & $+13.57$      \\
+            Mean reward (successes) & 219.64    & 219.86    & $+0.22$       \\
+            Std reward              & 97.33     & 81.38     & $-15.95$      \\
+            Std reward (successes)  & 34.86     & 34.55     & $-0.31$       \\
+            Mean steps              & 42.62     & 40.18     & $-2.44$       \\
+            \hline
+        \end{tabular}
+    \end{table}
+
 \section{Discussion}
     \subsection{SAC Policy Agent}
     Overall, the SAC policy performed comparably to the fixed DWB baseline, offering marginally better success rates at the cost of a minimal increase in time to goal. The policy's ability to adapt planner parameters based on the robot's and local path's surroundings seems to provide a noticeable boost in performance on the more difficult episodes.
 
-    \subsubsection{Overall Results}
-    On 300 evaluation episodes, the SAC policy achieved a 96.7\% success rate, slightly outperforming the 96.0\% success rate of the fixed DWB baseline. The mean time to reach the goal across successful episodes was 38.7\,s for the SAC policy, compared to 37.9\,s for the baseline, indicating a negligible increase in navigation time. The distributions of time-to-goal were largely overlapping between conditions, suggesting that the SAC policy matches the baseline in navigation speed while achieving a marginally higher success rate.
+        \subsubsection{Overall Results}
+        On 300 evaluation episodes, the SAC policy achieved a 96.7\% success rate, slightly outperforming the 96.0\% success rate of the fixed DWB baseline. The mean time to reach the goal across successful episodes was 38.7\,s for the SAC policy, compared to 37.9\,s for the baseline, indicating a negligible increase in navigation time. The distributions of time-to-goal were largely overlapping between conditions, suggesting that the SAC policy matches the baseline in navigation speed while achieving a marginally higher success rate.
 
-    \subsubsection{Per-Goal Adaptation Performance}
-    The policy offers a small performance boost on the baseline DWB planner's success rate, most of these gains come from the more difficult episodes with goals that are harder to reach, where the baseline planner is unable to reliably complete the episode. In these cases the policy's ability to adapt the planner parameters in response to the specific environment conditions around the local plan seems to provide a boost in performance. However, this is not always the case. In certain episodes where the baseline is sometimes able to complete the episode (still with a very low success rate), the policy seems to struggle more than the baseline. This could likely be due to the fact that the policy was trained on only one map and set of goals, but the tests were to determine whether the policy could generalize to new maps and goals. So while the policy is able to provide a boost in performance on some of the more difficult episodes, it also struggles to generalize to certain episodes that the baseline can complete.
+        \subsubsection{Per-Goal Adaptation Performance}
+        The policy offers a small performance boost on the baseline DWB planner's success rate, most of these gains come from the more difficult episodes with goals that are harder to reach, where the baseline planner is unable to reliably complete the episode. In these cases the policy's ability to adapt the planner parameters in response to the specific environment conditions around the local plan seems to provide a boost in performance. However, this is not always the case. In certain episodes where the baseline is sometimes able to complete the episode (still with a very low success rate), the policy seems to struggle more than the baseline. This could likely be due to the fact that the policy was trained on only one map and set of goals, but the tests were to determine whether the policy could generalize to new maps and goals. So while the policy is able to provide a boost in performance on some of the more difficult episodes, it also struggles to generalize to certain episodes that the baseline can complete.
 
-    \subsubsection{Time to Goal Performance}
+        \subsubsection{Time to Goal Performance}
+        While the policy was able to achieve a slightly higher success rate than the baseline, it did so with a slightly higher mean time to goal across successful episodes. This could be due to the fact that the policy is adjusting the planner parameters in response to the local environment conditions, which may lead to more cautious behavior in certain situations. For example, if the policy detects that the robot is approaching an obstacle, it may adjust the parameters to prioritize safety over speed, resulting in a longer time to reach the goal. However, since the distributions of time-to-goal were largely overlapping between conditions, this increase in time does not seem to be a significant tradeoff for the boost in success rate.
 
-    While the policy was able to achieve a slightly higher success rate than the baseline, it did so with a slightly higher mean time to goal across successful episodes. This could be due to the fact that the policy is adjusting the planner parameters in response to the local environment conditions, which may lead to more cautious behavior in certain situations. For example, if the policy detects that the robot is approaching an obstacle, it may adjust the parameters to prioritize safety over speed, resulting in a longer time to reach the goal. However, since the distributions of time-to-goal were largely overlapping between conditions, this increase in time does not seem to be a significant tradeoff for the boost in success rate.
+        \subsubsection{Safety Performance}
+        One of the concerns in this project was that the policy would learn to exploit the action space in a way that would lead to unsafe behaviors being rewarded for the sake of time efficiency. For example, the policy could learn to increase the maximum velocity and lower the obstacle avoidance weights to speed up navigation, but this could cause the robot to drive aggressively and collide with obstacles. However, the graduated proximity to obstacle cost penalty in the reward function seems to have successfully prevented this type of behavior. The policy seems to have learned to match the baseline's performance in terms of safety, as measured by the number of collisions across all episodes along with the average clearance and time spent in obstacle inflation.
 
-    \subsubsection{Safety Performance}
+        \subsubsection{Performance Consistency}
+        The mean time for episode completion was very similar between the policy and the baseline. However, the policy seems to reduce the variance on 29 of the 49 goal configurations. This suggests that the policy is usually able to react the same way to the same goal and surroundings across the path. The variance between some of the harder goals went from 3.25 seconds in the baseline to 0.6 seconds, and from 1.89 seconds to 0.002 seconds. This indicates that the policy is able to provide a more consistent navigation performance across episodes, which could be beneficial for real-world applications where predictability is important. DWB likely has some variance when navigating through tight spaces due to the fact that it's somewhat aggressive behavior will allow the robot to get very close to obstacles, and small differences in the local environment will determine how long the robot will get stuck in high cost regions of the costmap. 
 
-    One of the concerns in this project was that the policy would learn to exploit the action space in a way that would lead to unsafe behaviors being rewarded for the sake of time efficiency. For example, the policy could learn to increase the maximum velocity and lower the obstacle avoidance weights to speed up navigation, but this could cause the robot to drive aggressively and collide with obstacles. However, the graduated proximity to obstacle cost penalty in the reward function seems to have successfully prevented this type of behavior. The policy seems to have learned to match the baseline's performance in terms of safety, as measured by the number of collisions across all episodes along with the average clearance and time spent in obstacle inflation.
+        \subsubsection{Limitations}
+        The policy was only trained on one map and set of goals, so its ability to generalize to new maps and goals is limited. The team made a choice to do it this way to determine whether the policy could be trained to generalize to various new maps and goals. However, the weakness in this approach is that the policy may struggle to adapt to certain maps' unique features that aren't well represented in the training map.
 
-    \subsubsection{Performance Consistency}
-    The mean time for episode completion was very similar between the policy and the baseline. However, the policy seems to reduce the 
-    variance on 29 of the 49 goal configurations. This suggests that the policy is usually able to react the same way to the same goal and surroundings across the path. The variance between some of the harder goals went from 3.25 seconds in the baseline to 0.6 seconds, and from 1.89 seconds to 0.002 seconds. This indicates that the policy is able to provide a more consistent navigation performance across episodes, which could be beneficial for real-world applications where predictability is important. DWB likely has some variance when navigating through tight spaces due to the fact that it's somewhat aggressive behavior will allow the robot to get very close to obstacles, and small differences in the local environment will determine how long the robot will get stuck in high cost regions of the costmap. 
+        One other limitation is that the simulation environment does not factor in physics or dynamic obstacles. While this simplified the environment setup for the project, it also means that the policy may not be able to handle certain real world factors, such as wheel slip or moving obstacles.
 
-    \subsubsection{Limitations}
-    The policy was only trained on one map and set of goals, so its ability to generalize to new maps and goals is limited. The team made a choice to do it this way to determine whether the policy could be trained to generalize to various new maps and goals. However, the weakness in this approach is that the policy may struggle to adapt to certain maps' unique features that aren't well represented in the training map.
-
-    One other limitation is that the simulation environment does not factor in physics or dynamic obstacles. While this simplified the environment setup for the project, it also means that the policy may not be able to handle certain real world factors, such as wheel slip or moving obstacles.
-
-    The reward function design also has a potential issue to be addressed in future work. The reward function is set up for the policy to learn the most in scenarios where the standard DWB planner struggles. This is because the reward function rewards the policy for beating the time of the baseline DWB planner in a given episode, so the policy has more to gain by improving performance on episodes where the baseline DWB planner gets the robot stuck and takes a long time to free itself. While this helps the robot achieve a higher success rate on more difficult episodes, it could be the cause of the policy's average episode completion time being very slightly higher than the baseline's.
+        The reward function design also has a potential issue to be addressed in future work. The reward function is set up for the policy to learn the most in scenarios where the standard DWB planner struggles. This is because the reward function rewards the policy for beating the time of the baseline DWB planner in a given episode, so the policy has more to gain by improving performance on episodes where the baseline DWB planner gets the robot stuck and takes a long time to free itself. While this helps the robot achieve a higher success rate on more difficult episodes, it could be the cause of the policy's average episode completion time being very slightly higher than the baseline's.
     
+    \subsection{PPO Policy Agent}
+    Overall, the PPO policy performed noticeably better than the baseline policy in terms of success rate and efficiency toward the goal. When only considering episodes where the turtlebot successfully reaches the goal, the PPO policy performed marginally better than the baseline in terms of total reward.
+
+        \subsubsection{Safety Performance}
+        Of the 5\% increase in success rate from the PPO policy (10 episodes), half of those episodes (5) came directly from avoiding collisions. This is even more impressive when considering the fact that safety performance seemed to improve without sacrificing efficiency, since the mean number of steps to reach the goal decreased with the PPO policy. While the team wasn't able to build out a more granular breakdown of the reward function components during evaluation, the notion that safety improved without sacrificing efficiency is further corroborated by the marginal improvement in rewards per episode. Since the penalty for proximity to obstacles, $R_{PROX}$, in Table \ref{tab:ppo_values} is significantly larger than the step penalty, $R_{STEP}$, the reward improvement wouldn't occur if the PPO policy spent more time with closer proximity to obstacles than the baseline.
+
+        \subsubsection{Implications of Episode Failure Modes}
+        Apart from collisions, the other failure modes for the PPO agent's environment were broken out into ``timeouts'' and ``getting stuck''. On the surface, both failure modes seem similar, but the distinction comes from the source of the terminal state: timeouts occur when the maximum number of steps within a given episode is exceeded; and the ``stuck'' state is assigned when Nav2 aborts the navigation plan. Despite neither failure mode resulting in a direct penalty or bonus in the PPO agent's reward function, the PPO agent effectively reduced the number of plans aborted by Nav2 while remaining ineffective at preventing timeouts. This implies that the PPO policy was able to improve Nav2 stability in addition to improving the safety and efficiency of the navigation performance.
+
+        \subsubsection{Limitations}
+        In contrast to the SAC training and evaluation, the PPO policy was trained across a variety of maps that were re-used as part of the evaluation process. So while the PPO policy offered improvements over the baselines, not much can be said in terms of generalization. Ideally, machine learning workflows would involve a wide variety of training scenarios along with a small subset of test scenarios that aren't specifically trained on. However, the team's sample size was limited due to the manual process of configuring numerous start and goal poses that are valid (within grid boundaries and not unreachable) for each map.
+
+        Additionally, as discussed as part of the SAC Limitations, the simulation environment does not factor in physics or dynamic obstacles, so the PPO policy that was evaluate may not extend as successfully to real world factors (e.g. wheel slip or moving obstacles).
+
     \subsection{Future Work}
     Looking to future applications of RL-enhanced path planning along side the work that has already been investigated in this report, one of the next logical steps is to implement
     a wider range of path planning algorithms such as Dijkstra's, A*, rapidly-exploring random tree (RRT), breadth or depth first search (BFS, DFS) or others in order to see if
-    there would benefits of augmenting them with an on-policy or off-policy RL agent. The addition of other path planners would also encourage the development of a planner switch.
+    there would be benefits of augmenting them with an on-policy or off-policy RL agent. The addition of other path planners would also encourage the development of a planner switch.
     This is something that was originally discussed as a goal for this project, but it was decided to explore varied RL agents instead. Given that there is now a base of two different
-    RL approaches, the simulation would need to be updated to account for the correct hyperparameter that each planner would need, but with the rest of the structure being already built
+    RL approaches, the simulation would need to be updated to account for the correct hyperparameters that each planner would need, but with the rest of the structure being already built
     as adaptable around that, the major changes would be in the navigator config yaml file(s).
     
-    Future work should also revisit the reward function design. As discussed above, the current reward function unintentionally rewards the agent more for outperforming the baseline on
-    difficult episodes more than than on simple ones, which distorts the agents learning. Multi‑objective reward shaping, adaptive weighting, or learned reward models could produce more
+    Future work should also revisit the reward function design. As discussed above, one of the current reward functions unintentionally rewards the agent more for outperforming the baseline on difficult episodes than than on simple ones, which distorts the agent's learning. Multi‑objective reward shaping, adaptive weighting, or learned reward models could produce more
     stable and reliable behavior while ensuring that improvements are meaningful across all episode types.
 
-    With the addition of more path planners, a switching option could be implemented wherein the agent could select the best path planner for a crowded or more dynamic section of a map, utilize
-    it, then switch to a more lightweight one later on. This would require a much more in-dept and expanded hyperparameter base as touched on above, but could prove beneficial if overall
-    computational load could be reduced. Another important extension is incorporating physics‑accurate simulation and dynamic obstacles. The current environment does not model robot or load
-    inertia, wheel slip, or moving obstacles, which limits the realism of the agent behavior. Integrating a physics simulator such as Gazebo would allow the agent to learn parameter‑tuning
-    strategies that account for real‑world motion constraints on top of dynamic interactions with pedestrians, forklifts, or other robots.
+    With the addition of more path planners, a switching option could be implemented wherein the agent could select the best path planner for a crowded or more dynamic section of a map, utilize it, then switch to a more lightweight one later on. This would require a much more in-depth and expanded hyperparameter base as touched on above, but could prove beneficial if overall computational load could be reduced. Another important extension is incorporating physics‑accurate simulation and dynamic obstacles. The current environment does not model robot or load inertia, wheel slip, or moving obstacles, which limits the realism of the agent behavior. Integrating a physics simulator such as Gazebo would allow the agent to learn parameter‑tuning strategies that account for real‑world motion constraints on top of dynamic interactions with pedestrians, forklifts, or other robots.
     
-    Lastly, as this project was planning to utilize multiple 2D maps, however with the other modifications to the scope, it was deem that it should only focus on a single map as a proof of
-    concept. The first step towards a more realistic result would be the training of the agents on multiple heterogeneous maps. The maps should vary in size, complexity, isle size, as well as continue to
-    use the randomly generated start and goal points / poses. In that same line of thinking, this projects' map was a low-clutter, 2D, static environment, therefore putting these same agents
-    in crowded and / or dynamic traffic environments would be a step towards realistic deployment. Warehouses are full of people, forklifts, and clutter so testing in a sterile environment
-    (as was done in this simulation) is a great start, but does not accurately describe real-world implementation. Additionally, with dynamic obstacles and multiple maps, it may become more
-    clear if either the PPO or SAC agents find more of an advantage over standard planners and extend the marginally positive results seen in this project.
+    Lastly, as project development progressed for both of the RL architecture approaches, the set of maps that were intended for training and evaluation of the agents was not scaled appropriately. This was primarily due to time constraints for the project, so in spirit of casting a wide net, each approach took a different strategy to training and evaluation.
+    The first step towards a more realistic result would be unifying training for both agents on a large set of different heterogeneous maps and testing the agents on a distinct smaller set of maps. The maps should vary in size, complexity, isle size, as well as continue to use the randomly generated start and goal points / poses. In that same line of thinking, this projects' maps were relatively low-clutter, 2D, static environments; therefore putting these same agents in crowded and / or dynamic traffic environments would be a step towards realistic deployment. Warehouses are full of people, forklifts, and clutter so testing in a sterile environment (as was done in this simulation) is a great start, but does not accurately describe real-world implementation. Additionally, with dynamic obstacles and multiple maps, it may become more clear if either the PPO or SAC agents find more of an advantage over standard planners and extend the marginally positive results seen in this project.
 
 \newpage
 \begin{thebibliography}{00}

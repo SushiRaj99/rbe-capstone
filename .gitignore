@@ -5,5 +5,7 @@ Report/*
 !Report/sac_figures/
 Report/sac_figures/*
 !Report/sac_figures/*.png
+!Report/ppo_figures/
+!Report/ppo_figures/*.png
 
 .DS_Store
