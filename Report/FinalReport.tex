@@ -15,6 +15,8 @@
 \usepackage{float}
 \usepackage{enumitem}
 \usepackage{mathtools}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \newcommand{\photo}[1]{%
@@ -243,20 +245,103 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
     \subsection{General Code Architecture}
     % Moved this after the RL architecture section for two reasons: 1) Huge chunk of our code is dedicated to RL and it doesn't make much sense to exclude it from this section 2) Including graphics here could minimize the amount of descriptive text needed in the "RL Architecture" section. If stuff starts getting wordy up there, we can just say "see Code Architecture section", or "see Figure __" and refer to figures here.
-    -----PRESENT CODE FLOW / BREAKDOWN OF KEY FILES-----
         \subsubsection{Planner control and Episode Runner}
-        These two ROS2 nodes (planner\_controller.py and episode\_runner.py) work in concert with each other and act as the backbone for the episodic training
-        that is needed for the RL agent as well as building a basic baseline to compare it against. The planner node is able to dynamically switch between
-        the DWB and MPPI planners and then loads and maps the correct parameters (linear and angular acceleration and velocity, as well as required distances)
-        to pass into the episode runner. It also acts as a go-between to stored and communicate parameters as they change throughout the RL training and
-        pushes them out to the episode runner.
-        ----DIAGRAM----
-        
-        The episode\_runner node, as the name implies, runs a loop of episodes for both the untrained (benchmark) and trained (RL mode) path planners. It sets
-        up the simulation environment including the map and Turtlebot, and metrics for data collection. During the episodes and once the Nav2 finishes,
-        it fetches the designed performance metrics for analysis and comparison. After each timestep in the simulation, this node works with the planner
-        to capture the required data for the rest of the RL architecture.
-        ----DIAGRAM----
+        These two ROS2 nodes (planner\_controller.py and episode\_runner.py) work in concert and act as the backbone for the episodic training loop.
+        The planner controller exposes three services: one to switch the active planner, one to apply a named preset, and one used by the RL bridge to
+        push continuous parameter updates at each training step. When any of these are called, the node translates the logical parameter names into
+        the ROS parameter names expected by Nav2 and forwards them directly to the controller server. It also keeps the velocity smoother's speed caps
+        in sync and publishes a latched snapshot of the current parameter values for real-time diagnostics (see Figure~\ref{fig:planner_ctrl}).
+
+        \begin{figure}[H]
+        \centering
+        \resizebox{\columnwidth}{!}{%
+        \begin{tikzpicture}[
+          every node/.style={font=\footnotesize},
+          box/.style={draw, rounded corners=3pt, minimum height=0.65cm, minimum width=2.0cm, align=center},
+          srv/.style={box, fill=blue!8},
+          nav/.style={box, fill=green!10},
+          ctr/.style={box, fill=orange!12, minimum width=2.4cm},
+          top/.style={box, dashed, fill=gray!8, minimum width=3.0cm},
+          arr/.style={->, >=Stealth, semithick},
+          lab/.style={font=\tiny, inner sep=1pt},
+        ]
+          \node[ctr] (ctrl) {Planner\\Controller};
+          \node[srv, left=2.0cm of ctrl, yshift= 0.85cm] (raw)    {set\_raw\_params\\{\tiny RL Bridge}};
+          \node[srv, left=2.0cm of ctrl]                 (switch) {switch\_planner\\{\tiny Episode Runner}};
+          \node[srv, left=2.0cm of ctrl, yshift=-0.85cm] (preset) {set\_param\_preset\\{\tiny Episode Runner}};
+          \node[nav, right=2.0cm of ctrl, yshift= 0.4cm] (nav2)   {Nav2 Controller\\Server};
+          \node[nav, right=2.0cm of ctrl, yshift=-0.4cm] (smooth) {Velocity\\Smoother};
+          \node[top, below=0.9cm of ctrl] (pub) {/current\_planner\_params (latched)};
+          \draw[arr] (raw)    -- (ctrl);
+          \draw[arr] (switch) -- (ctrl);
+          \draw[arr] (preset) -- (ctrl);
+          \draw[arr] (ctrl)   -- (nav2);
+          \draw[arr] (ctrl)   -- (smooth);
+          \draw[arr] (ctrl)   -- (pub);
+        \end{tikzpicture}%
+        }
+        \caption{Planner Controller data flow. Services on the left accept requests from the RL bridge (continuous parameter updates) and the episode runner (planner/preset switching). Translated ROS parameters are pushed to the Nav2 controller server and velocity smoother; a latched snapshot is published for diagnostics.}
+        \label{fig:planner_ctrl}
+        \end{figure}
+
+        The episode runner drives the training loop as a state machine. In benchmark mode it automatically cycles through planner and preset configurations,
+        running each episode in sequence. In RL mode it waits after each episode until the training bridge calls \texttt{/start\_episode}, at which point
+        it teleports the robot to the start pose, waits for the simulation to settle, resets the metrics tracker, and sends the navigation goal to Nav2.
+        When the goal completes (or is cancelled on a collision), it collects the final episode metrics and publishes them for the RL bridge to consume
+        as the episode's terminal signal. The full state machine is shown in Figure~\ref{fig:episode_runner}.
+
+        \begin{figure}[H]
+        \centering
+        \resizebox{\columnwidth}{!}{%
+        \begin{tikzpicture}[
+          every node/.style={font=\small},
+          state/.style={draw, rounded corners=3pt, minimum height=0.7cm, minimum width=2.0cm, align=center},
+          arr/.style={->, >=Stealth, semithick},
+          lab/.style={font=\scriptsize, inner sep=1.5pt},
+        ]
+          %% centre column — main sequence
+          \node[state, fill=gray!15] (init)     at ( 0,   0.0) {INIT};
+          \node[state]               (start)    at ( 0,  -3.6) {START\\EPISODE};
+          \node[state]               (settling) at ( 0,  -5.8) {SETTLING};
+          \node[state]               (goal)     at ( 0,  -7.1) {GOAL\\ACTIVE};
+          \node[state]               (metrics)  at ( 0,  -8.4) {GETTING\\METRICS};
+          \node[state, fill=gray!15] (done)     at ( 0,  -9.7) {DONE};
+          %% left column
+          \node[state]               (waiting)  at (-2.8, -1.8) {WAITING\\FOR RL};
+          \node[state]               (map)      at (-2.8, -4.8) {MAP\\SWITCHING};
+          %% right column
+          \node[state]               (switching) at ( 2.8, -1.8) {SWITCHING\\PLANNER};
+
+          %% INIT → mode branches
+          \draw[arr] (init) -- node[lab,above left]{RL mode}    (waiting);
+          \draw[arr] (init) -- node[lab,above right]{benchmark} (switching);
+
+          %% side states → START (horizontal then down to west/east of start)
+          \draw[arr] (waiting.south)   -| node[lab,above,pos=0.3]{\texttt{/start\_episode}} (start.west);
+          \draw[arr] (switching.south) -| (start.east);
+
+          %% START → branches
+          \draw[arr] (start.west) -| node[lab,above,pos=0.3]{new map}  (map.north);
+          \draw[arr] (start)       -- node[lab,right]{same map}         (settling);
+
+          %% MAP → SETTLING
+          \draw[arr] (map.east) -| (settling.west);
+
+          %% main sequence
+          \draw[arr] (settling) -- (goal);
+          \draw[arr] (goal)     -- (metrics);
+          \draw[arr] (metrics)  -- node[lab,right]{all done} (done);
+
+          %% return loops — routed outside all nodes (x = ±4.0, beyond column edges ±3.8)
+          \draw[arr] (metrics.west) -- ++(-3.0,0) |-
+                     node[lab,left,pos=0.4]{RL mode}    (waiting.west);
+          \draw[arr] (metrics.east) -- ++(3.0,0)  |-
+                     node[lab,right,pos=0.4]{benchmark} (start.east);
+        \end{tikzpicture}%
+        }
+        \caption{Episode runner state machine. In RL mode the node waits for \texttt{/start\_episode} service calls from the training bridge; in benchmark mode it advances automatically. After collecting end-of-episode metrics, it returns to \textsc{Waiting for RL} or advances to the next episode or planner configuration.}
+        \label{fig:episode_runner}
+        \end{figure}
 
 \section{Experimentation}
     \subsection{Standard Path Planners}
