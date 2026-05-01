@@ -2,5 +2,8 @@ Report/*
 !Report/*.tex
 !Report/*.pdf
 !Report/*.png
+!Report/sac_figures/
+Report/sac_figures/*
+!Report/sac_figures/*.png
 
 .DS_Store

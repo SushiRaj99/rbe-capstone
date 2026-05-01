@@ -215,7 +215,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         
         PPO is an on‑policy actor-critic RL algorithm that updates its policy using batches of freshly collected trajectories (rollouts). Its defining feature is a clipped objective that restricts how far the policy is allowed to move during each update, which helps maintain stability during training. PPO is widely used because it strikes a balance between implementation simplicity, robustness, and reliable convergence across many continuous‑control tasks. Conceptually, PPO learns by repeatedly sampling new experience, computing policy gradients from that experience, and applying carefully constrained updates that prevent the policy from changing too abruptly.
         
-        SAC is an off‑policy actor–critic RL algorithm that learns from a replay buffer of past transitions rather than relying solely on newly collected data. SAC optimizes expected return and policy entropy, encouraging the agent to maintain broad exploration throughout training. This entropy‑regularized objective makes SAC highly sample‑efficient and well suited for environments where each interaction step is expensive to generate. At a high level, SAC continuously improves both a stochastic policy and a pair of Q‑value critics using stored experience, enabling stable learning even in high‑dimensional continuous action spaces.
+        SAC~\cite{b11} is an off‑policy actor–critic RL algorithm that learns from a replay buffer of past transitions rather than relying solely on newly collected data. SAC optimizes expected return and policy entropy, encouraging the agent to maintain broad exploration throughout training. This entropy‑regularized objective makes SAC highly sample‑efficient and well suited for environments where each interaction step is expensive to generate. At a high level, SAC continuously improves both a stochastic policy and a pair of Q‑value critics using stored experience, enabling stable learning even in high‑dimensional continuous action spaces.
 
         While the specific reward functions ultimately deviated between the two different RL design approaches, the overall design of the reward functions were the same. The overall design involved a hybrid reward function which included terms for both dense and sparse rewards based on the relevant path quality evaluation criteria. The dense rewards for both approaches (calculated on a per time step basis) were shaped by progress made toward the goal (Efficiency), commanded angular velocities (Smoothness), and proximity to obstacles (Safety). The sparse rewards for both approaches involved issuing large positive bonuses for reaching the goal (Accuracy), and penalties for collisions (Safety).
 
@@ -477,49 +477,70 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         \end{table}
 
 \section{Results}
-% NOTE: In case somebody beats me to it, I dumped all my results into the ecw_tinkering branch in the following directory:
-%   - ./rbe_capstone/rl_pipeline/rl_results.
-% Was planning to add relevant training plots and summarize the .json into a table. For the training plots, my current plan is to include the full training plot (non clipped version) and use like a box or arrow to point to/notate where the checkpoint was taken from (10,000 steps).
+    \subsection{RL-Trained Planner: SAC Policy Agent}
+    Table~\ref{tab:sac_summary} summarizes the results of a 300-episode evaluation comparing the fixed DWB preset~1 baseline against the trained SAC policy. Figure~\ref{fig:time_dist} shows the corresponding time-to-goal distributions for successful episodes.
 
-% This should get into the comparisons, how much time was saved or not in navigation, if certian parameters had more effect, etc.
-After conduction all -----NUMBER---- of experiments with both standard and RL-driven planners, it was made clear that -----BIG CONCLUSIVE RESULT-----
-
------GRAPHIC OVERLAYS OF STANDARD / RL PERFORMANCE FOR CLEARANCE, ACCURACY, EFFICIENCY, AND SMOOTHNESS-----
-
-Figures \ref{fig:view_tb} and \ref{fig:move_tb} below showcase the current state of the simulation environment as described above.
-\begin{figure}[H]
+    \begin{table}[H]
     \centering
-    \includegraphics[scale=0.25]{./view_turtlebot.png}
-    \caption{TurtleBot4 model loaded in RViz2 with a simple occupancy grid map environment for demonstration purposes.}
-    \label{fig:view_tb}
-\end{figure}
+    \caption{300-episode evaluation: DWB preset~1 baseline vs.\ SAC policy.}
+    \label{tab:sac_summary}
+    \begin{tabular}{lccc}
+    \hline
+    \textbf{Metric} & \textbf{Baseline} & \textbf{Policy} & \textbf{Delta} \\
+    \hline
+    Episodes               & 300       & 300       &             \\
+    Goals reached          & 288       & 290       & $+2$        \\
+    Success rate           & 96.0\%    & 96.7\%    & $+0.7$\,pp  \\
+    Mean time (successes)  & 37.9\,s   & 38.7\,s   & $+0.79$\,s  \\
+    Median time (successes)& 36.0\,s   & 36.5\,s   & $+0.50$\,s  \\
+    Std time (successes)   & 12.38\,s  & 12.35\,s  & $-0.03$\,s  \\
+    \hline
+    \end{tabular}
+    \end{table}
 
-\begin{figure}[H]
+    \begin{figure}[H]
     \centering
-    \begin{subfigure}[b]{0.23\textwidth}
-        \includegraphics[scale=0.1]{./move_turtlebot_1.png}
-        \subcaption{}
-        \label{subfig:p1}
-    \end{subfigure}
-    \begin{subfigure}[b]{0.23\textwidth}
-        \includegraphics[scale=0.1]{./move_turtlebot_2.png}
-        \subcaption{}
-        \label{subfig:p2}
-    \end{subfigure}
-    \hfill
-    \begin{subfigure}[b]{0.23\textwidth}
-        \includegraphics[scale=0.1]{./move_turtlebot_3.png}
-        \subcaption{}
-        \label{subfig:p3}
-    \end{subfigure}
-    \caption{TurtleBot4 model scanning and moving through the environment with goal poses set directly through RViz2. In \ref{subfig:p1}, the robot moves along the generated path (in green) from its initial pose to the first goal pose (in the upper left corner). Then in \ref{subfig:p2}, a new goal pose was commanded, resulting in a new path (to the upper right corner). Finally, in \ref{subfig:p3}, the robot reaches the final goal pose. All this navigation was done through manual control; and this sort of process will need to automated in order for the RL agent to be trained. Additionally, as the robot travels from \ref{subfig:p1} to \ref{subfig:p3}, it's clear from the LiDAR model scans (in red) that different parts of the environment become occluded. This is an important aspect of the environment that the RL agent will need to learn to account for when tuning the planner parameters.}
-    \label{fig:move_tb}
-\end{figure}
+    \includegraphics[width=\columnwidth]{./sac_figures/time_distribution.png}
+    \caption{Distribution of time-to-goal across all successful episodes (n=300). Dashed lines mark the mean for each condition. The two distributions are largely overlapping, indicating the SAC policy matches the baseline in navigation speed while achieving a marginally higher success rate.}
+    \label{fig:time_dist}
+    \end{figure}
+
+    \begin{figure}[H]
+    \centering
+    \includegraphics[width=\columnwidth]{./sac_figures/fig5_variance_comparison.png}
+    \caption{Per-goal trial-to-trial time standard deviation: baseline vs.\ SAC policy. Each point represents one of 49 goal configurations. Points below the diagonal indicate the policy is more consistent than the baseline on that goal. The policy achieves lower variance on 29 of 49 goals, a pattern obscured by the near-identical aggregate standard deviations in Table~\ref{tab:sac_summary}.}
+    \label{fig:variance}
+    \end{figure}
 
 \section{Discussion}
-    \subsection{Implications of Results}
-    % What kind of benefits could be seen for the time saved, if any, is it statistically significant
+    \subsection{SAC Policy Agent}
+    Overall, the SAC policy performed comparably to the fixed DWB baseline, offering marginally better success rates at the cost of a minimal increase in time to goal. The policy's ability to adapt planner parameters based on the robot's and local path's surroundings seems to provide a noticeable boost in performance on the more difficult episodes.
 
+    \subsubsection{Overall Results}
+    On 300 evaluation episodes, the SAC policy achieved a 96.7\% success rate, slightly outperforming the 96.0\% success rate of the fixed DWB baseline. The mean time to reach the goal across successful episodes was 38.7\,s for the SAC policy, compared to 37.9\,s for the baseline, indicating a negligible increase in navigation time. The distributions of time-to-goal were largely overlapping between conditions, suggesting that the SAC policy matches the baseline in navigation speed while achieving a marginally higher success rate.
+
+    \subsubsection{Per-Goal Adaptation Performance}
+    The policy offers a small performance boost on the baseline DWB planner's success rate, most of these gains come from the more difficult episodes with goals that are harder to reach, where the baseline planner is unable to reliably complete the episode. In these cases the policy's ability to adapt the planner parameters in response to the specific environment conditions around the local plan seems to provide a boost in performance. However, this is not always the case. In certain episodes where the baseline is sometimes able to complete the episode (still with a very low success rate), the policy seems to struggle more than the baseline. This could likely be due to the fact that the policy was trained on only one map and set of goals, but the tests were to determine whether the policy could generalize to new maps and goals. So while the policy is able to provide a boost in performance on some of the more difficult episodes, it also struggles to generalize to certain episodes that the baseline can complete.
+
+    \subsubsection{Time to Goal Performance}
+
+    While the policy was able to achieve a slightly higher success rate than the baseline, it did so with a slightly higher mean time to goal across successful episodes. This could be due to the fact that the policy is adjusting the planner parameters in response to the local environment conditions, which may lead to more cautious behavior in certain situations. For example, if the policy detects that the robot is approaching an obstacle, it may adjust the parameters to prioritize safety over speed, resulting in a longer time to reach the goal. However, since the distributions of time-to-goal were largely overlapping between conditions, this increase in time does not seem to be a significant tradeoff for the boost in success rate.
+
+    \subsubsection{Safety Performance}
+
+    One of the concerns in this project was that the policy would learn to exploit the action space in a way that would lead to unsafe behaviors being rewarded for the sake of time efficiency. For example, the policy could learn to increase the maximum velocity and lower the obstacle avoidance weights to speed up navigation, but this could cause the robot to drive aggressively and collide with obstacles. However, the graduated proximity to obstacle cost penalty in the reward function seems to have successfully prevented this type of behavior. The policy seems to have learned to match the baseline's performance in terms of safety, as measured by the number of collisions across all episodes along with the average clearance and time spent in obstacle inflation.
+
+    \subsubsection{Performance Consistency}
+    The mean time for episode completion was very similar between the policy and the baseline. However, the policy seems to reduce the 
+    variance on 29 of the 49 goal configurations. This suggests that the policy is usually able to react the same way to the same goal and surroundings across the path. The variance between some of the harder goals went from 3.25 seconds in the baseline to 0.6 seconds, and from 1.89 seconds to 0.002 seconds. This indicates that the policy is able to provide a more consistent navigation performance across episodes, which could be beneficial for real-world applications where predictability is important. DWB likely has some variance when navigating through tight spaces due to the fact that it's somewhat aggressive behavior will allow the robot to get very close to obstacles, and small differences in the local environment will determine how long the robot will get stuck in high cost regions of the costmap. 
+
+    \subsubsection{Limitations}
+    The policy was only trained on one map and set of goals, so its ability to generalize to new maps and goals is limited. The team made a choice to do it this way to determine whether the policy could be trained to generalize to various new maps and goals. However, the weakness in this approach is that the policy may struggle to adapt to certain maps' unique features that aren't well represented in the training map.
+
+    One other limitation is that the simulation environment does not factor in physics or dynamic obstacles. While this simplified the environment setup for the project, it also means that the policy may not be able to handle certain real world factors, such as wheel slip or moving obstacles.
+
+    The reward function design also has a potential issue to be addressed in future work. The reward function is set up for the policy to learn the most in scenarios where the standard DWB planner struggles. This is because the reward function rewards the policy for beating the time of the baseline DWB planner in a given episode, so the policy has more to gain by improving performance on episodes where the baseline DWB planner gets the robot stuck and takes a long time to free itself. While this helps the robot achieve a higher success rate on more difficult episodes, it could be the cause of the policy's average episode completion time being very slightly higher than the baseline's.
+    
     \subsection{Future Work}
     % Adding more path planners & the ability to switch between, trying a different RL agent policy (?) adding dynmaic obstacles, expanding to 3D / Gazebo
 
