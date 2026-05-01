@@ -14,6 +14,7 @@
 \usepackage{hyperref}
 \usepackage{float}
 \usepackage{enumitem}
+\usepackage{mathtools}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \newcommand{\photo}[1]{%
@@ -287,8 +288,11 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
     \subsection{RL-Trained Planner:PPO Policy Agent}
         \subsubsection{State and Action Space Design}
+        The PPO agent observation space was designed to include information about ``what the robot sees'', ``where the robot thinks it is'', and ``where the robot thinks it's going''. For what the robot sees, the state vector includes space for a predefined set of $N$ downsampled lidar ranges and bearings. However, instead of downsampling the lidar measurements in fixed increments around the robot, the lidar rays were divided into $N$ segments; where the minimum range measurements and associated bearing angles are extracted from each individual segment. This ensures that lidar measurements associated with the closest features surrounding the robot make it into the state vector and are not ``missed'' or sampled out. The lidar segment design is illustrated in Figure \_ below.
+        % placeholder for figure
+        For where the robot thinks it is, the state vector included the error components for $x$, $y$, and yaw. The error components were selected over the global frame components for $x$, $y$, and yaw as an attempt to minimize the dimensionality of the state vector; because the agent would either require knowledge of the goal pose, or require knowledge of the map itself, in order to make sense of the global frame components. And from a function approximation perspective, it makes more sense intuitively to determine actions based on how far away the robot is from the goal over where the robot is located within a given map. This is especially true when the same global coordinates represent entirely different states across different maps. For where the robot thinks it's going, the state vector included the elements for the linear and angular velocity components of the robot. Since the Turtlebot that we're trying to control is a differential drive robot, the velocity components can be represented concisely by a single forward velocity term, $v$, and a single steering velocity term, $\omega$. All together, the state vector took the following form:
         \begin{gather*}
-            s = 
+            s =
             \begin{bmatrix}
                 r_{lidar\_0}  \\
                 \theta_{lidar\_0} \\
@@ -314,7 +318,9 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
             \item $v$ is the linear (forward) velocity of the robot.
             \item $\omega$ is the rotational (steering) velocity of the robot.
         \end{itemize}
-
+        While different configurations of the state vector were tested, the final state vector included lidar measurements from 18 segments ($N$=18); so the final state vector consisted of 41 elements.
+        
+        The PPO agent action space was specifically designed to configure how fast, and how smooth, the DWB planner should control the robot. Of course, this is all done indirectly by adjusting boundaries and constraints that the DWB planner can work within. For configuring how fast the robot is controlled, the action vector includes the DWB parameters that control both the maximum and minimum velocities (increasing the maximum velocity alone may not gaurantee that the robot will speed up without also increasing the minimum velocity). For controlling how smooth the robot is controlled, the action vector includes the DWB parameters which control both the goal seeking and path seeking weights. This indirectly influences the smoothness of the planner because it effectively tells DWB how closely it should follow the immediate waypoints within the global path versus ignoring the global path to a certain degree in favor of reaching the goal faster. All together, the action vector took the following form:
         \begin{gather*}
             a =
             \begin{bmatrix}
@@ -328,10 +334,62 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         \end{gather*}
         where:
         \begin{itemize}
-            \item stuff.
+            \item $v_{max}$ is the DWB planner's ``max\_vel\_x" parameter (velocity ceiling).
+            \item $v_{min}$ is the DWB planner's ``min\_speed\_xy" parameter (velocity floor).
+            \item $GoalAlign.scale$ is the DWB planner's ``GoalAlign.scale" parameter (scores a trajectory based on how well aligned the trajectory is with the goal pose).
+            \item $PathAlign.scale$ is the DWB planner's ``PathAlign.scale" parameter (scores a trajectory based on how well it is aligned to the path provided by the global planner).
+            \item $GoalDist.scale$ is the DWB planner's ``GoalDist.scale" parameter (scores a trajectory based on how close the trajectory gets the robot to the goal pose).
+            \item $PathDist.scale$ is the DWB planner's ``PathDist.scale" parameter (scores a trajectory based on how close the trajectory gets the robot to the trajectory of the global planner).
         \end{itemize}
+        
+        With the state and action spaces of the PPO agent defined, the feedback between the state and action mapping needed to be established. While the reward function plays a pivotal role in providing that feedback for the agent to learn from; additional control was needed to account for the asynchronous nature of ROS2, along with the Nav2 stack's sensitivity to large rapid changes. While the custom gymnasium environment was responsible for transmitting the action to Nav2, the underlying ROS2 environment had potential to propagate the action to the Nav2 stack and publish an observation for the next state simultaneously. Without intervention, there would be no way to gaurantee the operating assumption of RL environments where the next state is produced as a result of the recently applied action. And even though there is a way to gaurantee that the next state observation is published after the Nav2 action is applied (via ROS2 callback groups); the immediate next state observation that follows the applied Nav2 action isn't gauranteed to be ``useful'' information for the agent since the impact of the DWB planner adjustments may not have had time to be fully realized. So in order to provide enough time for the planner's current configuration to produce a meaningful next state, the PPO agent's custom gymnasium environment was programmed to wait for a pre-specified amount of time before accepting a newly published observation from ROS2. The final implementation of the PPO agent's environment ended up using a 1.0 second wait time, but this parameter could ultimately be treated as a hyperparameter and further optimized.  
 
         \subsubsection{Reward Function Design}
+        The hybrid reward function for the PPO could be summarized as follows:
+        \begin{gather*}
+            R = r_{terminal} + r_{step} + r_{progress} + r_{smoothness} + r_{proximity}
+        \end{gather*}
+        where:
+        \begin{gather*}
+            r_{terminal} =
+            \begin{dcases}
+                R_{GOAL}    & \text{if goal reached} \\
+                R_{COLL}    & \text{if collision occurred} \\
+                0           & \text{otherwise} \\
+            \end{dcases} \\
+            \\
+            r_{step} = R_{STEP} \\
+            \\
+            r_{progress} = R_{PROG}*(xy\_error_{last}-xy\_error_{current}) \\
+            \\
+            r_{smoothness} = R_{SMOOTH}*|\omega| \\
+            \\
+            r_{proximity} = R_{PROX}*(r_{threshold}-r_{min\_lidar}))
+        \end{gather*}
+        and the values of the final PPO agent implementation are contained in Table \ref{tab:ppo_values}.
+        \begin{table}
+            \centering
+            \caption{PPO Agent Reward Function Constants}\label{tab:ppo_values}
+            \begin{tabular}{|c|c|p{5cm}|}
+                \hline
+                \textbf{Parameter} & \textbf{Value} & \textbf{Description} \\
+                \hline
+                $R_{GOAL}$ & +100 & Sparse bonus for the robot successfully reaching the goal.\\
+                \hline
+                $R_{COLL}$ & -100 & Sparse penalty for when the robot experiences a collision.\\
+                \hline
+                $R_{STEP}$ & -0.01 & Dense penalty for steps through the environment meant to encourage faster paths toward the goal.\\
+                \hline
+                $R_{PROG}$ & +10.0 & Dense reward scale meant to encourage making progress towards the goal and discourage further distancing from the goal.\\
+                \hline
+                $R_{SMOOTH}$ & -0.01 & Dense reward scale meant to discourage unnecessary or jerky rotation.\\
+                \hline
+                $R_{PROX}$ & -1.0 & Dense reward scale meant to penalize the robot's proximity to environment features within the minimum range threshold, $r_{threshold}$. \\
+                \hline
+                $r_{threshold}$ & 1.0 & The minimum range threshold (in meters) which activates the proximity penalty. When lidar measurements fall below this threshold, the penalty is determined by scaling $R_{PROX}$ by the difference between the threshold and the minimum lidar range measurement.\\
+                \hline
+            \end{tabular}
+        \end{table}
 
 \section{Results}
 % NOTE: In case somebody beats me to it, I dumped all my results into the ecw_tinkering branch in the following directory:
