@@ -73,8 +73,8 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     done on the back end and there is no need to manually set path layouts.
     
     \subsection{Project Objectives}
-    To reduce the amount of manual input needed to tune path planner parameters, a reinforcement learning (RL) algorithm is deployed into the simulation for a period of
-    raining and the following parameters are adjusted to optimize the Turtlebot travel across the simulated warehouse: Clearance, Accuracy,
+    To reduce the amount of manual input needed to tune path planner parameters, an RL algorithm is deployed into the simulation for a period of
+    training and the following parameters are adjusted to optimize the Turtlebot travel across the simulated warehouse: Clearance, Accuracy,
     Efficiency, and Smoothness. These four parameters have been previously proven to be statistically significant modifiers for both path planners 
     under study \cite{b1} \cite{b2}. In this context, a dense reward function is custom-built to help direct the RL algorithm through each episode so
     that when it is deployed, it can be more lightweight in terms of computational load.
@@ -82,8 +82,8 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
     \subsection{Background}
     While modern RL algorithms are a fairly new technology, AMRs and their predecessors, Automated Guided Vehicles (AGVs), are not and have been in
     use for over 70 years in various forms. Similarly, path planners such as Model Predictive Path Integral (MPPI) and Dynamic Window Approach-Based
-    (DWB) are 10-15 years old. As a result, there is a wide breadth of research into existing literature that has been conducted to both verify plausibility as well as serve
-    as a reasonable set of starting points.
+    (DWB) are 10-15 years old. As a result, there is a wide breadth of research that has been conducted to both verify plausibility as well as serve
+    as a reasonable set of starting points for this project.
         
         \subsection{Path planning}
         Elbouhy et. al designed a study that consisted of three different path planners that were tested in environments with static and dynamic
@@ -91,7 +91,7 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         and used the following criteria to determine path quality: time, distance, smoothness, minimum clearance, runs completed, and number of
         recoveries. This study showed that MPPI was the fastest but least smooth, DWB operated with the least clearance, and RPP took the most time
         and traveled the longest distance \cite{b1}. This demonstrates that different planners have different strengths and weaknesses which
-        ultimately led to the initial integration of both MPPI and DWB into the RL-based simulation built in this project.
+        ultimately led to the integration of both MPPI and DWB into the RL-based simulation built in this project.
         
         Li et. al studied the Dynamic Window Approach (DWA) algorithm and adjusted evaluation parameters in an effort to optimize the path planning.
         The evaluation function utilized in this paper looked at the heading, the distance between the trajectory and nearest obstacle, and the speed
@@ -207,38 +207,63 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
         
         To evaluate which reinforcement learning strategy would be most effective for dynamically tuning planner parameters and maximizing the reward function, two RL design approaches were explored in parallel using two different RL algorithms: PPO and Soft Actor-Critic (SAC). Each offers distinct advantages in continuous‑control settings, and comparing them directly allows analysis of their computational costs, sample efficiency, and stability characteristics within the constraints of a ROS2‑based navigation environment. By training both agents on the same environment, a determination could be made on whether one algorithm demonstrated more favorable results in a simple 2D navigation environment.  
         
-        PPO is an on‑policy actor-critic RL algorithm that updates its policy using batches of freshly collected trajectories (rollouts). Its defining feature is a clipped objective that restricts how far the policy is allowed to move during each update, which helps maintain stability during training. PPO is widely used because it strikes a balance between implementation simplicity, robustness, and reliable convergence across many continuous‑control tasks. Conceptually, PPO learns by repeatedly sampling new experience, computing policy gradients from that experience, and applying carefully constrained updates that prevent the policy from changing too abruptly.
+        PPO is an on‑policy actor-critic RL algorithm that updates its policy using batches of freshly collected trajectories (rollouts). Its defining
+        feature is a clipped objective that restricts how far the policy is allowed to move during each update, which helps maintain stability during
+        training. PPO is widely used because it strikes a balance between implementation simplicity, robustness, and reliable convergence across many
+        continuous‑control tasks. Conceptually, PPO learns by repeatedly sampling new experience, computing policy gradients from that experience,
+        and applying carefully constrained updates that prevent the policy from changing too abruptly.
         
-        SAC~\cite{b11} is an off‑policy actor–critic RL algorithm that learns from a replay buffer of past transitions rather than relying solely on newly collected data. SAC optimizes expected return and policy entropy, encouraging the agent to maintain broad exploration throughout training. This entropy‑regularized objective makes SAC highly sample‑efficient and well suited for environments where each interaction step is expensive to generate. At a high level, SAC continuously improves both a stochastic policy and a pair of Q‑value critics using stored experience, enabling stable learning even in high‑dimensional continuous action spaces.
+        SAC~\cite{b11} is an off‑policy actor–critic RL algorithm that learns from a replay buffer of past transitions rather than relying solely on
+        newly collected data. SAC optimizes expected return and policy entropy, encouraging the agent to maintain broad exploration throughout training. This entropy‑regularized objective makes SAC highly sample‑efficient and well suited for environments where each interaction step is expensive to generate. At a high level, SAC continuously improves both a stochastic policy and a pair of Q‑value critics using stored experience, enabling stable learning even in high‑dimensional continuous action spaces.
 
-        While the specific reward functions ultimately deviated between the two different RL design approaches, the overall design of the reward functions were the same. The overall design involved a hybrid reward function which included terms for both dense and sparse rewards based on the relevant path quality evaluation criteria. The dense rewards for both approaches (calculated on a per time step basis) were shaped by progress made toward the goal (Efficiency), commanded angular velocities (Smoothness), and proximity to obstacles (Safety). The sparse rewards for both approaches involved issuing large positive bonuses for reaching the goal (Accuracy), and penalties for collisions (Safety).
+        While the specific reward functions ultimately deviated between the two different RL design approaches, the overall design of the reward
+        functions were the same. The design involved a hybrid reward function which included terms for both dense and sparse rewards based on the
+        relevant path quality evaluation criteria. The dense rewards for both approaches (calculated on a per time step basis) were shaped by progress
+        made toward the goal (Efficiency), commanded angular velocities (Smoothness), and proximity to obstacles (Clearance). The sparse rewards for both
+        approaches involved issuing large positive bonuses for reaching the goal (Accuracy), and penalties for collisions (Safety).
 
         \subsubsection{Evaluation Framework}
-        Since the path quality evaluation criteria were built directly into the overall reward function design, the respective reward functions were used to evaluate the overall ``score'' of both the RL-augmented and baseline planners. Since the reward is already computed for each step through the custom gymnasium environment, the performance evaluation was accomplished by having both the RL-augmented planner (operating with a frozen policy) and the baseline planner step through the custom gymnasium enviornment over the same predefined set of episodes.
+        Since the path quality evaluation criteria were built directly into the overall reward function design, the respective reward functions were
+        used to evaluate the ``score'' of both the RL-augmented and baseline planners. Since the reward is already computed for each step
+        through the custom gymnasium environment, the performance evaluation was accomplished by having both the RL-augmented planner (operating with
+        a frozen policy) and the baseline planner step through the custom gymnasium environment over the same predefined set of episodes.
 
         \subsubsection{Training and Evaluation Tools}
-        To support debugging during both training and evaluation, a live parameter visualization tool was developed. It subscribes to a topic containing the Nav2 parameters being tuned and renders each tunable parameter as a horizontal bar dial in a real-time matplotlib window, updating at 10\,Hz. Each dial shows the full valid range for that parameter, a tick mark at the preset baseline value, and a colored fill indicating the current value: blue if the agent has pushed the parameter above baseline and orange if below. An example of the visualization is shown in Figure~\ref{fig:param_viz}.
+        To support debugging during both training and evaluation, a live parameter visualization tool was developed. It subscribes to a topic
+        containing the Nav2 parameters being tuned and renders each tunable parameter as a horizontal bar dial in a real-time matplotlib window,
+        updating at 10\,Hz. Each dial shows the full valid range for that parameter, a tick mark at the preset baseline value, and a colored fill
+        indicating the current value: blue if the agent has pushed the parameter above baseline and orange if below. An example of the visualization
+        is shown in Figure~\ref{fig:param_viz}.
 
         \begin{figure}[H]
             \centering
             \includegraphics[width=\columnwidth]{./param_viz.png}
-            \caption{Live parameter dial visualization during a training run. Each bar shows the current value relative to the preset baseline (vertical tick) and the full tunable range. Blue indicates the agent has pushed a parameter above baseline; orange indicates below.}
+            \caption{Live parameter dial visualization during a training run. Each bar shows the current value relative to the preset baseline}
             \label{fig:param_viz}
         \end{figure}
 
-        The tool proved useful for catching two failure modes that were not obvious from reward curves alone. In one case, the agent collapsed all parameters toward one extreme of their range and kept them there, which the dials made immediately apparent. In another case, the parameters were not changing at all between steps, which pointed to a bug in how actions were being applied rather than a training issue. Having a direct view of what the agent was actually doing to the planner at each step made these problems straightforward to diagnose.
+        The tool proved useful for catching two failure modes that were not obvious from reward curves alone. In one case, the agent collapsed all
+        parameters toward one extreme of their range and kept them there, which the dials made immediately apparent. In another case, the parameters
+        were not changing at all between steps, which pointed to a bug in how actions were being applied rather than a training issue. Having a direct
+        view of what the agent was actually doing to the planner at each step made these problems straightforward to diagnose.
 
-        On top of the parameter visualizer, SB3 included wrappers for monitoring the training process in real time through TensorBoard. Since training would typically take several hours, this tool was absolutely necessary for stopping poor training iterations early due to bad sets of hyperparameter configurations (e.g. learning rates, batch sizes, etc.). In addition to allowing for stepping through training hyperparameter configurations more quickly; TensorBoard also allowed provided history for tracking trends across the different hyperparameter configuration and other design changes (see Figure~\ref{fig:tb_example} below).
+        On top of the parameter visualizer, SB3 included wrappers for monitoring the training process in real time through TensorBoard. Since
+        training would typically take several hours, this tool was absolutely necessary for stopping poor training iterations early due to bad
+        sets of hyperparameter configurations (e.g. learning rates, batch sizes, etc.). In addition to allowing for stepping through training
+        hyperparameter configurations more quickly; TensorBoard also allowed provided history for tracking trends across the different hyperparameter
+        configuration and other design changes (see Figure~\ref{fig:tb_example} below).
         
         \begin{figure}[H]
             \centering
             \includegraphics[width=\columnwidth]{./tensorboard_example.png}
-            \caption{TensorBoard plot from PPO training before (blue--PPO\_10) and after (orange--PPO\_11) resolving a bug where episodes with aborted Nav2 path plans were rewarded with the same bonus as episodes which successfully reached the goal. Since drastically different results were given the same reward across episodes, the agent was confused about which actions were ``better'' and learning was ultimately stifled.}
+            \caption{TensorBoard plot from PPO training before (blue--PPO\_10) and after (orange--PPO\_11) resolving a bug where episodes with
+            aborted Nav2 path plans were rewarded with the same bonus as episodes which successfully reached the goal. Since drastically different
+            results were given the same reward across episodes, the agent was confused about which actions were ``better'' and learning was
+            ultimately stifled.}
             \label{fig:tb_example}
         \end{figure}
 
     \subsection{General Code Architecture}
-    % Moved this after the RL architecture section for two reasons: 1) Huge chunk of our code is dedicated to RL and it doesn't make much sense to exclude it from this section 2) Including graphics here could minimize the amount of descriptive text needed in the "RL Architecture" section. If stuff starts getting wordy up there, we can just say "see Code Architecture section", or "see Figure __" and refer to figures here.
         \subsubsection{Planner control and Episode Runner}
         These two ROS2 nodes (planner\_controller.py and episode\_runner.py) work in concert and act as the backbone for the episodic training loop.
         The planner controller exposes three services: one to switch the active planner, one to apply a named preset, and one used by the RL bridge to
@@ -339,14 +364,28 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
 \section{Experimentation}
     \subsection{Standard Path Planners}
-    In order to determine the feasibility of constantly tuning planner parameters, the system was first tested by manually switching between two parameter sets for both MPPI and DWB. While DWB was able to handle the parameter changes without issue, MPPI struggled to keep moving when parameters were adjusted. This is due to the fact that MPPI relies on a sampling-based approach to generate its path, and when parameters are changed, the samples that were previously valid may no longer be valid, causing the planner to struggle to find a new path. Every time the parameter sets were changed, the robot would come to a stop, and then the planner would slowly resume planning motion. This is not ideal, and dramatically slows down the navigation process, defeating the purpose of this project. While it may be possible to mitigate this issue, the team decided to concentrate focus on the RL agent, and DWB was ultimately chosen to be the only planner that the RL agent would be trained on. DWB is a more traditional local planner that relies on a costmap-based approach, and it is able to handle parameter changes more gracefully than MPPI. This is because DWB generates its path based on the costmap, which is updated in real-time as the robot moves through the environment. As a result, when parameters are changed, DWB can quickly adapt to the new costmap and continue planning without significant disruption.
+    In order to determine the feasibility of constantly tuning planner parameters, the system was first tested by manually switching between two
+    parameter sets for both MPPI and DWB. While DWB was able to handle the parameter changes without issue, MPPI struggled to keep moving when
+    parameters were adjusted. This is due to the fact that MPPI relies on a sampling-based approach to generate its path, and when parameters are
+    changed, the samples that were previously valid may no longer be valid, causing the planner to struggle to find a new path. Every time the
+    parameter sets were changed, the robot would come to a stop, and then the planner would slowly resume planning motion. This is not ideal, and
+    dramatically slows down the navigation process, defeating the purpose of this project. While it may be possible to mitigate this issue, the team
+    decided to concentrate focus on the RL agent, and DWB was ultimately chosen to be the only planner that the RL agent would be trained on. DWB
+    is a more traditional local planner that relies on a costmap-based approach, and it is able to handle parameter changes more gracefully than MPPI.
+    This is because DWB generates its path based on the costmap, which is updated in real-time as the robot moves through the environment. As a
+    result, when parameters are changed, DWB can quickly adapt to the new costmap and continue planning without significant disruption.
     
     \subsection{RL-Trained Planner: SAC Policy Agent}
 
-        \subsubsection{SAC \& DWB Parameters Tuned}
-        Four DWB parameters were selected for tuning to keep the action space small and learning tractable. Maximum linear velocity controls how fast the robot can move and has a direct effect on efficiency. Obstacle scale controls how aggressively DWB avoids obstacles when scoring candidate trajectories, governing the tradeoff between clearance and speed.
+        \subsubsection{DWB Parameters}
+        Four DWB parameters were selected for tuning to keep the action space small and learning tractable. Maximum linear velocity controls how
+        fast the robot can move and has a direct effect on efficiency. Obstacle scale controls how aggressively DWB avoids obstacles when scoring
+        candidate trajectories, governing the tradeoff between clearance and speed.
 
-        The other two are meta-parameters: path weight and goal weight. Rather than tuning DWB's four critic scales independently, each meta-parameter scales a correlated pair together: path weight adjusts both path-following critics simultaneously, and goal weight adjusts both goal-seeking critics. This keeps the action space small without giving up meaningful control, since the two critics in each pair always push in the same direction anyway.
+        The other two are meta-parameters: path weight and goal weight. Rather than tuning DWB's four critic scales independently, each meta-parameter
+        scales a correlated pair together: path weight adjusts both path-following critics simultaneously, and goal weight adjusts both goal-seeking
+        critics. This keeps the action space small without giving up meaningful control, since the two critics in each pair always push in the same
+        direction anyway.
 
         \subsubsection{State and Action Space Design}
         The agent observes 12 values at each timestep: eight navigation state values and four values representing the agent's own currently active parameter settings. The navigation state includes three path-cost lookahead values sampled from the Nav2 costmap along the upcoming plan (covering roughly 1\,m, 3\,m, and 6\,m ahead), distance and heading error to the goal, linear velocity, angular velocity, and lateral deviation from the global plan. Raw LiDAR was excluded because the costmap lookahead already captures obstacle proximity in a form the planner directly acts on, and a smaller observation keeps learning more tractable. The agent's own smoothed parameter values are appended to the observation so the policy can see what settings are currently active in the planner.
@@ -367,16 +406,32 @@ utilize MPPI and DWB path planners and as a result, optimize them to perform bet
 
     \subsection{RL-Trained Planner:PPO Policy Agent}
         \subsubsection{State and Action Space Design}
-        The PPO agent observation space was designed to include information about ``what the robot sees'', ``where the robot thinks it is'', and ``where the robot thinks it's going''. For what the robot sees, the state vector includes space for a predefined set of $N$ downsampled lidar ranges and bearings. However, instead of downsampling the lidar measurements in fixed increments around the robot, the lidar rays were divided into $N$ segments; where the minimum range measurements and associated bearing angles are extracted from each individual segment. This ensures that lidar measurements associated with the closest features surrounding the robot make it into the state vector and are not ``missed'' or sampled out. The lidar segment design is illustrated in Figure \ref{fig:lidsegs}.
+        The PPO agent observation space was designed to include information about environment observations, robot location, and anticipated heading.
+        For what the robot sees, the state vector includes space for a predefined set of $N$ downsampled lidar ranges and bearings. However, instead of
+        downsampling the lidar measurements in fixed increments around the robot, the lidar rays were divided into $N$ segments; where the minimum
+        range measurements and associated bearing angles are extracted from each individual segment. This ensures that lidar measurements associated
+        with the closest features surrounding the robot make it into the state vector and are not missed or sampled out. The lidar segment design
+        is illustrated in Figure \ref{fig:lidsegs}.
 
         \begin{figure}[H]
             \centering
             \includegraphics[width=\columnwidth]{./lidar_segments.png}
-            \caption{Lidar segment design illustration. As part of this illustration, the turtlebot (dark grey center circle) is located between 3 obstacles (light grey rectangles). The turtlebot's span of lidar scans (light blue circle) are broken up into 8 segments (dark blue slices). Within each lidar segment, the lidar scan with the minimum range (red dashed lines) would be inserted into the state vector. For segments that don't have a distinct minimum lidar range, the first clockwise lidar scan would be inserted into the state vector.}
+            \caption{Lidar segment design illustration. As part of this illustration, the turtlebot (dark grey center circle) is located between 3
+            obstacles (light grey rectangles). The turtlebot's span of lidar scans (light blue circle) are broken up into 8 segments (dark blue
+            slices). Within each lidar segment, the lidar scan with the minimum range (red dashed lines) would be inserted into the state vector. For
+            segments that don't have a distinct minimum lidar range, the first clockwise lidar scan would be inserted into the state vector.}
             \label{fig:lidsegs}
         \end{figure}
 
-        For where the robot thinks it is, the state vector included the error components for $x$, $y$, and yaw. The error components were selected over the global frame components for $x$, $y$, and yaw as an attempt to minimize the dimensionality of the state vector; because the agent would either require knowledge of the goal pose, or require knowledge of the map itself, in order to make sense of the global frame components. And from a function approximation perspective, it makes more sense intuitively to determine actions based on how far away the robot is from the goal over where the robot is located within a given map. This is especially true when the same global coordinates represent entirely different states across different maps. For where the robot thinks it's going, the state vector included the elements for the linear and angular velocity components of the robot. Since the Turtlebot that we're trying to control is a differential drive robot, the velocity components can be represented concisely by a single forward velocity term, $v$, and a single steering velocity term, $\omega$. All together, the state vector took the following form:
+        For where the robot thinks it is, the state vector included the error components for $x$, $y$, and yaw. The error components were selected
+        over the global frame components for $x$, $y$, and yaw as an attempt to minimize the dimensionality of the state vector; because the agent
+        would either require knowledge of the goal pose, or require knowledge of the map itself, in order to make sense of the global frame components.
+        And from a function approximation perspective, it makes more sense intuitively to determine actions based on how far away the robot is from
+        the goal over where the robot is located within a given map. This is especially true when the same global coordinates represent entirely
+        different states across different maps. For where the robot thinks it's going, the state vector included the elements for the linear and
+        angular velocity components of the robot. Since the Turtlebot that we're trying to control is a differential drive robot, the velocity
+        components can be represented concisely by a single forward velocity term, $v$, and a single steering velocity term, $\omega$. All together,
+        the state vector took the following form:
         \begin{gather*}
             s =
             \begin{bmatrix}
