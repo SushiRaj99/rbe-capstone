@@ -6,6 +6,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, String
 from std_srvs.srv import Empty
 from rcl_interfaces.srv import SetParameters
+from rclpy.duration import Duration
 
 from rl_pipeline import pipeline_utils as putils
 
@@ -49,7 +50,8 @@ class RLBridgeNode(Node):
 
     def wait_for_observation(self, timeout: float = 2.0) -> Optional[np.ndarray]:
         obs = None
-        time.sleep(1.0)
+        #time.sleep(1.0)
+        self.get_clock().sleep_for(Duration(seconds=1.0))
         self.obs_event.clear()  # effectively blocks logic until RLBridgeNode.collect_observation() sets the lock, indicating that a fresh observation was collected
         if not self.obs_event.wait(timeout=timeout):
             self.get_logger().warn("Timeout waiting for observation.")
@@ -299,13 +301,21 @@ def evaluate_model(
     model = PPO.load(model_path, env=env, device="cpu")
     all_rewards, all_steps, all_outcomes = [], [], []
     seed_selector = np.random.default_rng(seed)
+    log_file = None
+    if results_path is not None:
+        results_dir, _ = os.path.split(results_path)
+        log_file = os.path.join(results_dir, 'evaluate_model_log.txt')
+        log_cnt = 1
+        while os.path.isfile(log_file):
+            log_cnt +=1 
+            log_file = os.path.join(results_dir, f'evaluate_model_log_{log_cnt}.txt')
     # Loop over all epiosdes:
     for episode in range(num_episodes):
         episode_seed = seed_selector.integers(10_000)
         observation, info = env.reset(seed=episode_seed)    # can't pass 'seed' directly into reset() since it re-initializes its own local RNG each time
         episode_reward = 0.0
         episode_steps = 0
-        episode_status = 'unkown'
+        episode_status = 'unknown'
         done = False
         # Inner episode loop until termination or truncation:
         while not done:
@@ -320,6 +330,10 @@ def evaluate_model(
         all_steps.append(episode_steps)
         all_outcomes.append(episode_status)
         print(f"\tepisode {episode}/{num_episodes} | reward = {episode_reward:.3f} | steps = {episode_steps} | {episode_status}")
+        if log_file is not None:
+            with open(log_file, 'a') as file:
+                file.write(f"episode {episode}/{num_episodes} | reward = {episode_reward:.3f} | steps = {episode_steps} | {episode_status}\n")
+        
     # Record final results:
     env.close()
     ep_summary = summarize_eval_results(
@@ -344,13 +358,21 @@ def evaluate_baseline(
     bridge = env.bridge     # access bridge directly to bypass the action-publish path
     all_rewards, all_steps, all_outcomes = [], [], []
     seed_selector = np.random.default_rng(seed)
+    log_file = None
+    if results_path is not None:
+        results_dir, _ = os.path.split(results_path)
+        log_file = os.path.join(results_dir, 'evaluate_baseline_log.txt')
+        log_cnt = 1
+        while os.path.isfile(log_file):
+            log_cnt +=1 
+            log_file = os.path.join(results_dir, f'evaluate_baseline_log_{log_cnt}.txt')
     # Loop over all epiosdes:
     for episode in range(num_episodes):
         episode_seed = seed_selector.integers(10_000)
         observation, info = env.reset(seed=episode_seed)    # can't pass 'seed' directly into reset() since it re-initializes its own local RNG each time
         episode_reward = 0.0
         episode_steps = 0
-        episode_status = 'unkown'
+        episode_status = 'unknown'
         done = False
         # Inner episode loop until termination or truncation:
         while not done:
@@ -373,6 +395,9 @@ def evaluate_baseline(
         all_steps.append(episode_steps)
         all_outcomes.append(episode_status)
         print(f"\tepisode {episode}/{num_episodes} | reward = {episode_reward:.3f} | steps = {episode_steps} | {episode_status}")
+        if log_file is not None:
+            with open(log_file, 'a') as file:
+                file.write(f"episode {episode}/{num_episodes} | reward = {episode_reward:.3f} | steps = {episode_steps} | {episode_status}\n")
     # Record final results:
     env.close()
     ep_summary = summarize_eval_results(
@@ -403,6 +428,7 @@ def summarize_eval_results(label: str, rewards: List[float], lengths: List[float
         stuck_rate     = stuck_rate,
         outcomes       = outcomes,
         rewards        = rewards,
+        lengths        = lengths,
     )
     print(f"\nResults for {label}:\n")
     print(f"\tEpisodes       : {n}")
