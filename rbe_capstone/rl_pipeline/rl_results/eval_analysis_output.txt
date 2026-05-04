@@ -1,0 +1,143 @@
+Results for ./eval_results_10000_steps_200eps_seed27_with_length_run1.json...
+RL Model:
+	rl_success_rate = 0.91
+	rl_collision_rate = 0.0
+	rl_timeout_rate = 0.045
+	rl_stuck_rate = 0.045
+	rl_mean_reward = 197.29849020330593
+	rl_std_reward = 80.44586468203008
+	rl_mean_reward_success = 220.15261978627424
+	rl_std_reward_success = 34.48268583758428
+	rl_mean_time = 40.465
+	rl_std_time = 17.70589661666418
+	rl_mean_time_success = 39.71978021978022
+	rl_std_time_success = 10.948106562978552
+Baseline Model:
+	base_success_rate = 0.595
+	base_collision_rate = 0.015
+	base_timeout_rate = 0.34
+	base_stuck_rate = 0.05
+	base_mean_reward = 115.96511645904913
+	base_std_reward = 130.91005413955284
+	base_mean_reward_success = 220.46429902952485
+	base_std_reward_success = 33.978332334953976
+	base_mean_time = 59.195
+	base_std_time = 29.702810893920457
+	base_mean_time_success = 44.65546218487395
+	base_std_time_success = 11.709679236067709
+Per Episode Deltas:
+	mean_reward_deltas = 0.8588527907644526
+	std_reward_deltas = 0.8473794493263805
+	mean_time_deltas = -4.184873949579832
+	std_time_deltas = -0.9488542939226203
+
+Results for ./eval_results_10000_steps_200eps_seed27_with_length_run2.json...
+RL Model:
+	rl_success_rate = 0.88
+	rl_collision_rate = 0.015
+	rl_timeout_rate = 0.045
+	rl_stuck_rate = 0.06
+	rl_mean_reward = 188.29242177704728
+	rl_std_reward = 91.08929709191912
+	rl_mean_reward_success = 219.40465007809738
+	rl_std_reward_success = 33.745613410567216
+	rl_mean_time = 39.285
+	rl_std_time = 18.721478974696417
+	rl_mean_time_success = 39.69886363636363
+	rl_std_time_success = 10.698619221849716
+Baseline Model:
+	base_success_rate = 0.835
+	base_collision_rate = 0.005
+	base_timeout_rate = 0.115
+	base_stuck_rate = 0.045
+	base_mean_reward = 176.57646641311374
+	base_std_reward = 102.6731279765474
+	base_mean_reward_success = 219.66432348512598
+	base_std_reward_success = 34.05554549091158
+	base_mean_time = 48.735
+	base_std_time = 22.51121442748036
+	base_mean_time_success = 45.10179640718563
+	base_std_time_success = 12.298500337251543
+Per Episode Deltas:
+	mean_reward_deltas = 0.9164775506140025
+	std_reward_deltas = 0.900381322876703
+	mean_time_deltas = -4.949685534591195
+	std_time_deltas = -1.4946074503992524
+
+Results for ./eval_results_10000_steps_200eps_seed27_with_length_run3.json...
+RL Model:
+	rl_success_rate = 0.92
+	rl_collision_rate = 0.0
+	rl_timeout_rate = 0.04
+	rl_stuck_rate = 0.04
+	rl_mean_reward = 199.59000554980918
+	rl_std_reward = 77.5917758117061
+	rl_mean_reward_success = 220.07953050556694
+	rl_std_reward_success = 34.419949649185824
+	rl_mean_time = 40.455
+	rl_std_time = 17.068918389868763
+	rl_mean_time_success = 39.79891304347826
+	rl_std_time_success = 10.918562122300056
+Baseline Model:
+	base_success_rate = 0.92
+	base_collision_rate = 0.0
+	base_timeout_rate = 0.04
+	base_stuck_rate = 0.04
+	base_mean_reward = 198.50869889291516
+	base_std_reward = 77.34666791136519
+	base_mean_reward_success = 218.92919807201636
+	base_std_reward_success = 34.31264652219738
+	base_mean_time = 45.76
+	base_std_time = 18.096751089629322
+	base_mean_time_success = 45.53804347826087
+	base_std_time_success = 12.676521796915543
+Per Episode Deltas:
+	mean_reward_deltas = 1.1503324335505498
+	std_reward_deltas = 0.9741235016534394
+	mean_time_deltas = -5.739130434782608
+	std_time_deltas = -1.7579596746154866
+
+Results for ./eval_results_10000_steps_200eps_seed27_with_length_run4.json...
+RL Model:
+	rl_success_rate = 0.91
+	rl_collision_rate = 0.0
+	rl_timeout_rate = 0.045
+	rl_stuck_rate = 0.045
+	rl_mean_reward = 197.2421371736266
+	rl_std_reward = 80.598304155621
+	rl_mean_reward_success = 220.1433021722418
+	rl_std_reward_success = 34.48931185004677
+	rl_mean_time = 40.69
+	rl_std_time = 17.71817992910107
+	rl_mean_time_success = 39.967032967032964
+	rl_std_time_success = 10.986455746874606
+Baseline Model:
+	base_success_rate = 0.91
+	base_collision_rate = 0.005
+	base_timeout_rate = 0.04
+	base_stuck_rate = 0.045
+	base_mean_reward = 195.89320458971923
+	base_std_reward = 81.1566529422
+	base_mean_reward_success = 219.02924590521553
+	base_std_reward_success = 33.84915854654638
+	base_mean_time = 42.765
+	base_std_time = 18.10386077608862
+	base_mean_time_success = 42.72527472527472
+	base_std_time_success = 11.846143652261715
+Per Episode Deltas:
+	mean_reward_deltas = 0.3169892746419404
+	std_reward_deltas = 1.003813656512999
+	mean_time_deltas = -2.842696629213483
+	std_time_deltas = -0.9817429703802727
+
+Overall Results:
+	                      Baseline        RL
+	Mean Success Rate:     0.81500   0.90500
+	Mean Collision Rate:   0.00625   0.00375
+	Mean Timeout Rate:     0.13375   0.04375
+	Mean Stuck Rate:       0.04500   0.04750
+
+	Avg Mean Reward Difference per Episode (RL - Baseline) for Shared Successes: 0.8106630123927363
+	Avg Std Reward Difference per Episode (RL - Baseline) for Shared Successes: 0.9314244825923805
+	Avg Mean Time Difference per Episode (RL - Baseline) for Shared Successes: -4.429096637041781
+	Avg Difference of Std Time for Shared Successes (RL - Baseline): -1.295791097329408
